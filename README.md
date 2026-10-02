@@ -255,12 +255,43 @@ scan holdings, and run auto-mints without hand-holding.
 
 ---
 
+## Don't want a terminal? There's a UI
+
+```bash
+npm run ui
+```
+
+Then open **http://127.0.0.1:7799**.
+
+Everything the CLI does is in the page: set up, check, add RPCs, speed-test them,
+generate and back up wallets, find and auto-mint free NFTs, send NFTs to holders,
+and fund wallets.
+
+**It runs on your machine only.** It binds to `127.0.0.1`, so nothing on your
+network — phone, other laptop, the internet — can reach it. There is no
+account, no telemetry, and no outbound request of any kind.
+
+Two things worth knowing:
+
+- **The page contains no wallet logic.** Every button shells out to the same
+  CLI the test suites prove, so the UI can't drift from what's verified.
+- **Your password is piped to the local process for one command and then
+  forgotten** — never written to disk, never logged, never sent back to the
+  browser. `setup` ignores the field entirely and generates its own.
+
+The UI only allows an explicit list of commands, refuses cross-origin requests,
+and rejects unknown `wallet` sub-actions — `test/ui-tests.mjs` asserts all of
+that, including that the port really is unreachable from your LAN address.
+
+---
+
 ## Tests — both suites are real
 
 ```bash
 npm test          # 72 tests: local anvil + Forge-deployed contracts
+npm run test:ui   # 17 tests: the local UI's security boundary
 npm run test:testnet   # 23 tests: LIVE Robinhood Chain TESTNET (46630)
-npm run verify    # both, in order
+npm run verify    # all three, in order
 ```
 
 **`npm test` — 72 passing.** A real local anvil chain with real Forge-deployed

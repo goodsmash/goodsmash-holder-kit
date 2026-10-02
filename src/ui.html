@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>holder-kit</title>
+<style>
+  /* Colours come from the host app when previewed; fall back for a plain browser. */
+  :root {
+    --bg: #0d0f12; --card: #14171c; --fg: #e7e9ee; --mut: #8b93a1;
+    --acc: #6ee7b7; --warn: #fbbf24; --err: #f87171; --line: #232830;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f7f9; --card:#fff; --fg:#14171c; --mut:#5b6472; --line:#e2e5ea; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 1080px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
+  .sub { color: var(--mut); font-size: 13.5px; margin-bottom: 22px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
+       color: var(--mut); margin: 0 0 10px; font-weight: 600; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+  }
+  button {
+    font: inherit; font-size: 13.5px; padding: 7px 12px; border-radius: 8px;
+    border: 1px solid var(--line); background: transparent; color: var(--fg);
+    cursor: pointer; transition: border-color .12s, background .12s;
+  }
+  button:hover:not(:disabled) { border-color: var(--acc); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.go { border-color: var(--acc); color: var(--acc); font-weight: 600; }
+  button.go:hover:not(:disabled) { background: color-mix(in srgb, var(--acc) 12%, transparent); }
+  .row { display: flex; flex-wrap: wrap; gap: 7px; }
+  label { display: block; font-size: 12.5px; color: var(--mut); margin: 0 0 4px; }
+  input, select, textarea {
+    width: 100%; font: inherit; font-size: 13.5px; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  }
+  textarea { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; resize: vertical; }
+  .field { margin-bottom: 10px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .note {
+    font-size: 12.5px; color: var(--mut); margin-top: 10px;
+    border-left: 2px solid var(--line); padding-left: 10px;
+  }
+  .warn { color: var(--warn); }
+  pre {
+    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 13px; overflow: auto; max-height: 340px; font-size: 12.5px; line-height: 1.5;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap;
+    word-break: break-word; margin: 0;
+  }
+  pre:empty { display: none; }
+  .busy { color: var(--acc); font-size: 12.5px; }
+  #pw { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  .pill {
+    display: inline-block; font-size: 11.5px; padding: 2px 8px; border-radius: 99px;
+    border: 1px solid var(--line); color: var(--mut); margin-left: 6px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>holder-kit <span class="pill">local only</span></h1>
+  <p class="sub">
+    Runs on your own machine. Your password is sent to the local process and never
+    saved, logged, or sent anywhere. Nothing on this page talks to the internet.
+  </p>
+
+  <section style="margin-bottom:14px">
+    <h2>Vault password</h2>
+    <div class="two">
+      <div>
+        <label for="pw">Password (needed for anything that touches your wallets)</label>
+        <input id="pw" type="password" autocomplete="current-password" placeholder="your vault password">
+      </div>
+      <div>
+        <label for="chain">Chain</label>
+        <select id="chain">
+          <option value="robinhoodMainnet">Robinhood Chain — mainnet</option>
+          <option value="robinhoodTestnet">Robinhood Chain — testnet (worthless)</option>
+        </select>
+      </div>
+    </div>
+    <p class="note">
+      Left as <code>setup</code>, <code>chains</code> and <code>bench</code> alone —
+      those never touch a key. For testnet commands the CLI also wants the
+      <code>--i-know-this-is-testnet</code> flag, which the buttons below add for you.
+    </p>
+  </section>
+
+  <div class="grid">
+
+    <section>
+      <h2>Get started</h2>
+      <div class="row">
+        <button data-cmd="setup">Set up</button>
+        <button data-cmd="check">Check it works</button>
+        <button data-cmd="chains">List chains</button>
+      </div>
+      <p class="note">First time? Run <b>Set up</b>. It creates your vault and a wallet, then
+      tells you what to do next. It also prints your password file location — move that
+      somewhere safe.</p>
+    </section>
+
+    <section>
+      <h2>RPC speed</h2>
+      <div class="field">
+        <label for="rpc">Add your own RPC (any EVM provider)</label>
+        <input id="rpc" placeholder="https://…your-key…">
+      </div>
+      <div class="row">
+        <button id="addRpc">Add RPC</button>
+        <button data-cmd="bench">Speed test</button>
+        <button data-cmd="doctor">Doctor</button>
+      </div>
+      <p class="note">Public RPCs rate-limit and stop long runs. Add two or three and
+      <code>bench</code> shows which is fastest. Your key is saved to a gitignored file.</p>
+    </section>
+
+    <section>
+      <h2>Wallets &amp; backup</h2>
+      <div class="field">
+        <label for="wc">How many wallets to generate</label>
+        <input id="wc" type="number" min="1" max="100" value="10">
+      </div>
+      <div class="row">
+        <button id="newWallets">Generate</button>
+        <button data-cmd="wallet:list">List</button>
+        <button id="backup">Back up vault</button>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="bkpath">Backup destination</label>
+        <input id="bkpath" placeholder="D:/my-cold-backup.vault">
+      </div>
+      <p class="note"><b>Back up the vault.</b> Open the backup on another machine before you
+      trust it — a backup never opened is a hypothesis, not a backup.</p>
+    </section>
+
+    <section>
+      <h2>Find free mints</h2>
+      <div class="field">
+        <label for="coll">Collection address (blank = all watched)</label>
+        <input id="coll" placeholder="0x…">
+      </div>
+      <div class="row">
+        <button data-cmd="find">Find what's free</button>
+        <button id="auto" class="go">Mint it automatically</button>
+      </div>
+      <p class="note warn"><b>Mint it automatically</b> spends real gas and needs gas in your
+      wallets. Always run <b>Find</b> first and read the plan before using it.</p>
+    </section>
+
+    <section>
+      <h2>Send NFTs to holders</h2>
+      <div class="field">
+        <label for="rc">Recipient addresses (one per line)</label>
+        <textarea id="rc" rows="4" placeholder="0x1111…&#10;0x2222…"></textarea>
+      </div>
+      <div class="row">
+        <button id="spread">Send them</button>
+        <button data-cmd="scan">See what we hold</button>
+      </div>
+      <p class="note">Tokens are dealt round-robin to those addresses. Sends are recorded in a
+      ledger, so re-running never double-sends.</p>
+    </section>
+
+    <section>
+      <h2>Fund wallets</h2>
+      <div class="two">
+        <div>
+          <label for="each">ETH per wallet</label>
+          <input id="each" value="0.005">
+        </div>
+        <div>
+          <label for="to">Recipients (blank = all in vault)</label>
+          <textarea id="to" rows="2" placeholder="0x1111…"></textarea>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="fund">Fund them</button>
+      </div>
+    </section>
+
+  </div>
+
+  <section style="margin-top:14px">
+    <h2>Output <span class="busy" id="busy"></span></h2>
+    <pre id="out"></pre>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const out = $('out'), busy = $('busy');
+
+// Buttons declare their command; everything else is assembled below.
+document.querySelectorAll('[data-cmd]').forEach((b) => {
+  b.addEventListener('click', () => {
+    const raw = b.dataset.cmd;
+    const argv = raw.includes(':') ? raw.split(':') : [raw];
+    run(argv);
+  });
+});
+
+const lines = (s) => s.split(/[\r\n]+/).map((x) => x.trim()).filter(Boolean);
+const collection = () => $('coll').value.trim();
+const isTestnet = () => $('chain').value === 'robinhoodTestnet';
+const testnetFlag = () => (isTestnet() ? ['--i-know-this-is-testnet'] : []);
+
+$('addRpc').addEventListener('click', () => {
+  const url = $('rpc').value.trim();
+  if (!url) return run(['bench']);
+  run(['rpc', 'add', url, '--chain', $('chain').value]);
+});
+
+$('newWallets').addEventListener('click', () => {
+  const n = Math.max(1, Math.min(100, parseInt($('wc').value, 10) || 1));
+  run(['wallet', 'new', String(n)]);
+});
+
+$('backup').addEventListener('click', () => {
+  const p = $('bkpath').value.trim();
+  run(p ? ['wallet', 'backup', p] : ['wallet', 'backup']);
+});
+
+$('auto').addEventListener('click', () => {
+  const argv = ['auto', '--chain', $('chain').value, ...testnetFlag()];
+  if (collection()) argv.push('--collection', collection());
+  run(argv);
+});
+
+$('spread').addEventListener('click', () => {
+  const argv = ['spread', '--chain', $('chain').value, ...testnetFlag()];
+  if (collection()) argv.push('--collection', collection());
+  const to = lines($('rc').value);
+  if (!to.length) {
+    out.textContent = 'Add at least one recipient address first.';
+    return;
+  }
+  argv.push('--to', to.join(','));
+  run(argv);
+});
+
+$('fund').addEventListener('click', () => {
+  const argv = ['fund', '--each', $('each').value.trim() || '0.005',
+                '--chain', $('chain').value, ...testnetFlag()];
+  const to = lines($('to').value);
+  if (to.length) argv.push('--to', to.join(','));
+  run(argv);
+});
+
+let running = false;
+
+async function run(argv) {
+  if (running) return;
+  running = true;
+  document.querySelectorAll('button').forEach((b) => (b.disabled = true));
+  busy.textContent = 'running…';
+  out.textContent = `$ ${argv.join(' ')}`;
+
+  try {
+    const r = await fetch('/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ argv, password: $('pw').value }),
+    });
+    const j = await r.json();
+    if (j.error) {
+      out.textContent = j.error;
+    } else {
+      out.textContent = j.output || '(no output)';
+      out.style.color = j.code === 0 ? '' : 'var(--warn)';
+    }
+  } catch (e) {
+    out.textContent = `request failed: ${e.message}`;
+  } finally {
+    running = false;
+    document.querySelectorAll('button').forEach((b) => (b.disabled = false));
+    busy.textContent = '';
+  }
+}
+</script>
+</body>
+</html>
