@@ -1,0 +1,18 @@
+{
+  "name": "goodsmash-holder-kit",
+  "version": "1.0.0",
+  "description": "Self-custodied holder toolkit: encrypted key vault, multi-RPC failover, NFT spread/ship, mint farming and holder bot builder. Keys never leave your machine.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "bin": { "holder-kit": "./bin/holder-kit.mjs" },
+  "scripts": {
+    "test": "node test/run-tests.mjs",
+    "doctor": "node bin/holder-kit.mjs doctor"
+  },
+  "dependencies": {
+    "viem": "^2.57.2"
+  },
+  "keywords": ["ethereum", "evm", "wallet", "vault", "nft", "rpc", "failover", "self-custody"],
+  "repository": { "type": "git", "url": "https://github.com/goodsmash/goodsmash-holder-kit" }
+}

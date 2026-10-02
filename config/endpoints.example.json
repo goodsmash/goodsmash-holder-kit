@@ -1,0 +1,16 @@
+{
+  "$comment": "COMMITTED TEMPLATE — copy to config/endpoints.json and fill in your own keys. Never commit the filled copy.",
+  "providers": {
+    "quicknode-robinhood": {
+      "url": "https://YOUR-QUICKNODE-ENDPOINT.quiknode.pro/YOUR-TOKEN/",
+      "tier": "keyed"
+    },
+    "alchemy-robinhood": {
+      "url": "https://rh-mainnet.g.alchemy.com/v2/YOUR-KEY",
+      "tier": "keyed"
+    }
+  },
+  "assignments": {
+    "robinhoodMainnet": ["quicknode-robinhood", "robinhood-public"]
+  }
+}

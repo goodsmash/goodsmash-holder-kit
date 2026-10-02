@@ -1,0 +1,85 @@
+{
+  "robinhoodMainnet": {
+    "id": 4663,
+    "name": "Robinhood Chain",
+    "testnet": false,
+    "explorer": "https://robinhoodchain.blockscout.com",
+    "nativeSymbol": "ETH",
+    "decimals": 18,
+    "confirmationTarget": 2,
+    "note": "Public RPCs are rate limited by design. Add a keyed provider for production runs.",
+    "$comment": "Every endpoint below was verified live against chain 4663 (eth_chainId = 0x1237). Do not add a URL you have not tested — a dead endpoint costs a failover on every single request. Verify with: holder-kit doctor --chain robinhoodMainnet",
+    "endpoints": [
+      { "url": "https://rpc.mainnet.chain.robinhood.com", "provider": "robinhood-public", "tier": "public" },
+      { "url": "https://robinhood.drpc.org", "provider": "drpc-public", "tier": "public" }
+    ],
+    "collections": {
+      "RIGS": {
+        "address": "0x1DFE1eE1BBa83152223e676f496feaE62406bB56",
+        "standard": "ERC721",
+        "label": "Mineral RIGS (10,000)"
+      },
+      "CCFF00": {
+        "address": "0x505a22ffed8d37ebe580ffd98d2cdb0021189146",
+        "standard": "ERC721",
+        "label": "CCFF00 (10,000)"
+      }
+    }
+  },
+  "robinhoodTestnet": {
+    "id": 46630,
+    "name": "Robinhood Chain Testnet",
+    "testnet": true,
+    "explorer": "https://explorer.testnet.chain.robinhood.com",
+    "nativeSymbol": "ETH",
+    "decimals": 18,
+    "confirmationTarget": 1,
+    "endpoints": [
+      { "url": "https://rpc.testnet.chain.robinhood.com", "provider": "robinhood-public", "tier": "public" }
+    ],
+    "collections": {}
+  },
+  "base": {
+    "id": 8453,
+    "name": "Base",
+    "testnet": false,
+    "explorer": "https://basescan.org",
+    "nativeSymbol": "ETH",
+    "decimals": 18,
+    "confirmationTarget": 2,
+    "endpoints": [
+      { "url": "https://mainnet.base.org", "provider": "base-public", "tier": "public" },
+      { "url": "https://base-rpc.publicnode.com", "provider": "publicnode", "tier": "public" },
+      { "url": "https://base.llamarpc.com", "provider": "llamarpc", "tier": "public" }
+    ],
+    "collections": {}
+  },
+  "ethereum": {
+    "id": 1,
+    "name": "Ethereum",
+    "testnet": false,
+    "explorer": "https://etherscan.io",
+    "nativeSymbol": "ETH",
+    "decimals": 18,
+    "confirmationTarget": 3,
+    "endpoints": [
+      { "url": "https://ethereum-rpc.publicnode.com", "provider": "publicnode", "tier": "public" },
+      { "url": "https://eth.llamarpc.com", "provider": "llamarpc", "tier": "public" },
+      { "url": "https://rpc.ankr.com/eth", "provider": "ankr", "tier": "public" }
+    ],
+    "collections": {}
+  },
+  "local": {
+    "id": 31337,
+    "name": "Local Anvil",
+    "testnet": true,
+    "explorer": "http://127.0.0.1:8545",
+    "nativeSymbol": "ETH",
+    "decimals": 18,
+    "confirmationTarget": 1,
+    "endpoints": [
+      { "url": "http://127.0.0.1:8545", "provider": "anvil", "tier": "local" }
+    ],
+    "collections": {}
+  }
+}

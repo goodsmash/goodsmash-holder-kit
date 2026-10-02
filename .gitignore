@@ -1,0 +1,30 @@
+# NEVER COMMIT SECRETS. The kit ships with a secret scanner; this is the second lock.
+node_modules/
+*.log
+
+# Vaults and keys — plaintext or encrypted
+vault/
+*.vault
+*.vault.json
+keys/
+keys.txt
+keys.json
+wallets.json
+private-keys*
+.env
+.env.*
+*.key
+*.pem
+seed*.txt
+mnemonic*
+# Ignore any JSON that carries a raw 32-byte hex private key, whatever its name
+**/*wallet*.json
+**/*key*.json
+**/*secret*.json
+
+# Agent runtime state
+runs/
+logs/
+*.receipt.jsonl
+bot-state.json
+*.pid
