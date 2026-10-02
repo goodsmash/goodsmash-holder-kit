@@ -24,6 +24,10 @@ mnemonic*
 
 # Agent runtime state
 runs/
+# Foundry build output — regenerable, and large
+out/
+cache/
+broadcast/
 logs/
 *.receipt.jsonl
 bot-state.json
