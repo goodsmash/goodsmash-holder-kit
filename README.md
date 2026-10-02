@@ -328,9 +328,32 @@ PASS  re-running sends nothing (ledger)       sent=0
 23 passed, 0 failed  — against Robinhood TESTNET
 ```
 
-The testnet run needs a funded testnet key. It reads one from
-`ROBINHOOD_TESTNET_DEPLOYER_KEY` in your env file and never prints it. If the
-balance is short it funds fewer wallets and says so, rather than faking a pass.
+The testnet run needs a funded testnet key. Create one, then fund it:
+
+```bash
+node test/make-testnet-wallet.mjs     # prints an address + key, saves them locally
+```
+
+It saves the wallet to `~/Documents/rh-testnet-wallet/testnet-deployer.json`
+(deliberately outside the repo, so no source control can ever commit it) and
+prints the private key once so you can back it up.
+
+Then paste that address into the faucet — **in a browser**, not a script:
+
+**https://faucet.testnet.chain.robinhood.com**
+
+The official faucet returns HTTP 429 to scripted requests, so a `curl` or a
+headless fetch will not work; it wants a real page load. Once funded, re-run
+`npm run test:testnet`. The proof finds the key automatically and prints which
+source it used, so you always know which wallet paid for the run.
+
+Other faucets that work for Robinhood testnet, if the official one is busy:
+QuickNode (`faucet.quicknode.com/robinhood/testnet`, no account needed, 12-hour
+cooldown), Chainlink, and `faucet.trade`. Each needs a browser too.
+
+Every run spends roughly 0.000011 test ETH, so a single claim covers dozens of
+runs. If the balance runs short the proof stops and tells you the exact address
+to top up instead of failing mid-way.
 
 ### Bugs this testing caught (and fixed)
 

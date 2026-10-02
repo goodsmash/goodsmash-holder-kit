@@ -3,7 +3,9 @@
 // Uses the actual CLI code path (Vault -> Signer -> RpcPool -> mintState),
 // against a contract deployed to testnet. No mocks, no fixtures.
 // The deployer key is read from the project env by NAME and never printed.
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { RpcPool } from '../src/rpc.mjs';
@@ -18,11 +20,55 @@ import { RunLedger } from '../src/safety.mjs';
 import { resolveChain } from '../src/config.mjs';
 
 const DROP = JSON.parse(readFileSync('test/testnet-drop.json', 'utf8'));
-const ENV = 'C:/Users/ryanm/Downloads/goodsmash-v2-full/goodsmash-onchain-worlds-v2/packages/contracts/.env';
 
-const envText = readFileSync(ENV, 'utf8');
-const key = envText.match(/^DEPLOYER_PRIVATE_KEY\s*=\s*(.+)$/m)[1].trim().replace(/^["']|["']$/g, '');
-const deployerKey = key.startsWith('0x') ? key : '0x' + key;
+/**
+ * Find a funded testnet deployer key, in order of preference:
+ *   1. ROBINHOOD_TESTNET_DEPLOYER_KEY in the environment (CI, agents)
+ *   2. ~/Documents/rh-testnet-wallet/testnet-deployer.json (the wallet
+ *      `node test/make-testnet-wallet.mjs` creates for you)
+ *   3. a legacy .env in another checkout, as a last resort
+ *
+ * Hardcoding one absolute path made this file unusable for anyone who cloned
+ * the repo, which is the opposite of what a public proof should be.
+ */
+function findDeployerKey() {
+  const env = process.env.ROBINHOOD_TESTNET_DEPLOYER_KEY?.trim();
+  if (env) return { key: env.startsWith('0x') ? env : '0x' + env, source: 'ROBINHOOD_TESTNET_DEPLOYER_KEY' };
+
+  const walletFile = join(homedir(), 'Documents', 'rh-testnet-wallet', 'testnet-deployer.json');
+  if (existsSync(walletFile)) {
+    try {
+      const rec = JSON.parse(readFileSync(walletFile, 'utf8'));
+      if (rec.privateKey) {
+        const k = rec.privateKey.startsWith('0x') ? rec.privateKey : '0x' + rec.privateKey;
+        return { key: k, source: walletFile };
+      }
+    } catch {
+      /* fall through to the next candidate */
+    }
+  }
+
+  const legacy = 'C:/Users/ryanm/Downloads/goodsmash-v2-full/goodsmash-onchain-worlds-v2/packages/contracts/.env';
+  if (existsSync(legacy)) {
+    const m = readFileSync(legacy, 'utf8').match(/^(?:DEPLOYER_PRIVATE_KEY|ROBINHOOD_TESTNET_DEPLOYER_KEY)\s*=\s*(.+)$/m);
+    if (m) {
+      const k = m[1].trim().replace(/^["']|["']$/g, '');
+      return { key: k.startsWith('0x') ? k : '0x' + k, source: 'legacy .env' };
+    }
+  }
+
+  console.error(
+    '\nNo testnet deployer key found.\n\n' +
+    'Create one, fund it with test ETH (https://faucet.testnet.chain.robinhood.com),\n' +
+    'then re-run:\n\n' +
+    '  node test/make-testnet-wallet.mjs\n' +
+    '  npm run test:testnet\n\n' +
+    'Or set ROBINHOOD_TESTNET_DEPLOYER_KEY in the environment.\n'
+  );
+  process.exit(1);
+}
+
+const { key: deployerKey, source: keySource } = findDeployerKey();
 
 const spec = resolveChain('robinhoodTestnet', {});
 const pool = new RpcPool(spec.endpoints, spec.id);
@@ -86,6 +132,32 @@ ok('fee cap tracks the real gas price', FEE_CAP < gp * 4n, `gas=${formatUnits(gp
 const perWallet = FEE_CAP * 700000n;
 const affordable = Number((funderBal - TX_COST) / perWallet);
 const WALLET_COUNT = Math.max(1, Math.min(2, affordable));
+
+// An unfunded (or nearly unfunded) deployer is the single most likely reason a
+// newcomer runs this. Clamping to 1 wallet and continuing produced a raw
+// "insufficient funds" stack trace ~15 lines later, which reads like a bug in
+// the toolkit rather than "you need to fund this address". Stop here instead.
+if (funderBal < perWallet + TX_COST) {
+  const addr = privateKeyToAccount(deployerKey).address;
+  ok('deployer has testnet ETH to fund the proof', false,
+    `${formatUnits(funderBal)} ETH — needs ~${formatUnits(perWallet + TX_COST)}`);
+  console.log(`
+  FUND THIS ADDRESS WITH TEST ETH, THEN RE-RUN:
+
+    ${addr}
+
+  Faucet:  https://faucet.testnet.chain.robinhood.com
+  (Robinhood Chain testnet, chain id 46630 — test ETH is worthless by design.
+   The official faucet rate-limits scripted requests, so claim it in a browser.)
+
+  Key came from: ${keySource}
+
+  Every proof run spends roughly ${formatUnits(perWallet)} of that balance.
+  `);
+  await rmSync(vaultPath, { force: true });
+  process.exit(1);
+}
+
 ok('deployer has testnet ETH to fund the proof', affordable >= 1,
   `${formatUnits(funderBal)} available, ${formatUnits(perWallet)} per wallet`);
 
@@ -240,6 +312,7 @@ vault.lock();
 
 console.log(`\n============================================================`);
 console.log(`  ${pass} passed, ${fail} failed  — against Robinhood TESTNET`);
+console.log(`  funded by: ${keySource}`);
 console.log(`============================================================\n`);
 
 // Clean up local artifacts; the deployed contract stays as a live example.
