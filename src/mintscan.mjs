@@ -223,7 +223,7 @@ export function printMintScan(results, chainName) {
   const free = results.filter((r) => r.verdict === 'free-live');
   if (free.length) {
     console.log(`\n  \x1b[32m${free.length} collection(s) are free and callable right now.\x1b[0m`);
-    console.log(`  auto-mint them with:  holder-kit auto --collection ${free[0].address}`);
+    console.log(`  preview: holder-kit auto --collection ${free[0].address}   then add --auto to mint`);
   }
 }
 

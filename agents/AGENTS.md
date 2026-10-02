@@ -10,7 +10,11 @@ seed phrase or private key into chat, tell them it is now compromised, stop, and
 have them rotate the wallet via `wallet from-seed` into a fresh vault.
 
 `HOLDER_KIT_SEED` and `HOLDER_KIT_PASSWORD` exist for non-interactive use only.
-Prefer the hidden prompts so secrets never reach shell history.
+Prefer the hidden prompts so secrets never reach shell history. The CLI refuses
+`--password` and `--phrase` on the command line for the same reason.
+
+The vault unlocks itself from `vault/PASSWORD.txt` (written by `setup`), so an
+agent never needs, and must never be given, the password.
 
 ### Never ask for a key
 
@@ -23,6 +27,26 @@ Never print, echo, or partially reveal `vault/PASSWORD.txt` or the contents of
 `config/endpoints.json` (which holds the holder's RPC API keys). Both are
 gitignored for exactly this reason.
 
+## 1a. Agent mode — enforced in code, not just in this document
+
+Agents run the CLI with `HOLDER_KIT_AGENT=1` (the Hermes wrapper from
+`npm run hermes:install` does this). The holder picks what the agent may sign:
+
+| `HOLDER_KIT_AGENT_BROADCAST` | Agent may broadcast |
+|---|---|
+| `none` (default) | nothing — reads and dry runs only |
+| `free-mints` | zero-price mints only |
+| `all` | anything, under the ceilings |
+
+Refused at every level: `--override-ceilings`, `wallet remove`,
+`wallet change-password`, `wallet restore`. A refusal exits with code **2** and
+a message starting `agent mode:`. Treat it as final: show the dry run, tell the
+holder the command, and stop. Never change the policy, the wrapper, or its
+`policy.json` yourself.
+
+This is a guardrail, not a sandbox. Anything with a shell as the holder could
+bypass it, which is why rules 1, 7 and 10 still matter.
+
 ## 2. Onboarding a holder
 
 The holder runs one command; you never do it for them:
@@ -31,8 +55,9 @@ The holder runs one command; you never do it for them:
 node bin/holder-kit.mjs setup --wallets 20
 ```
 
-It creates the vault, generates a password into `vault/PASSWORD.txt`, makes the
-wallets, checks the chain, and prints the next command. Then `check` proves the
+It creates the vault, generates a password into `vault/PASSWORD.txt` (never
+overwriting an existing one), makes the wallets, writes a verified backup,
+checks the chain, and prints the next command. Then `check` proves the
 install works. If `setup` reports a failed check, show the user that line and
 the suggested fix rather than moving on.
 
@@ -62,8 +87,13 @@ otherwise abort a long run mid-way.
 
 ## 5. Dry run first
 
-Every command defaults to dry run. Show the holder the plan, then re-run with
-`--auto`. Do not jump straight to `--auto` on an unfamiliar collection.
+Every command defaults to dry run — including `auto`. Show the holder the plan,
+then re-run with `--execute` / `--auto` only after a clear yes. Do not jump
+straight to `--auto` on an unfamiliar collection. Dry runs never prompt and exit
+0, so they are safe to run unattended.
+
+Use `--json` on `check`, `find`, `scan`, `wallet list` and `chains` and parse
+the result rather than scraping coloured text.
 
 ## 6. Report from chain state
 
@@ -79,7 +109,8 @@ Distinguish these honestly:
 
 ## 7. Never force a resend
 
-`runs/ledger.jsonl` prevents double-sends. If a run was partial, re-run the same
+`runs/ledger.jsonl` prevents double-sends for `spread`/`ship`; `fund` tops up
+to a target instead of sending blindly, so it is also safe to re-run. If a run was partial, re-run the same
 command — it resumes. Deleting the ledger to "retry" sends the same NFTs twice.
 
 ## 8. Ceilings

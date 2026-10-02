@@ -1,136 +1,120 @@
 ---
 name: holder-kit
-description: Use when a holder needs wallets backed up, NFTs sent to other wallets, gas split across wallets, or a free on-chain mint caught automatically. Runs fully hands-free from an encrypted local vault.
-version: 1.0.0
+description: Use when a holder wants to check RPC health, see what their wallets hold, find free on-chain NFT mints, or preview/run NFT sends, gas top-ups and free mints from their local encrypted holder-kit vault. Self-custodied; keys never leave the machine.
+version: 1.1.0
 license: MIT
+platforms: [linux, macos, windows]
 metadata:
   hermes:
+    category: web3
     tags: [web3, evm, wallet, nft, rpc, mint, self-custody, holders]
     related_skills: [local-secret-material-handling, robinhood-chain, evm-nft-launch-hardening]
 ---
 
 # holder-kit
 
-Self-custodied holder toolkit. One-time vault setup, then **zero signing prompts**.
-
-## The rule that outranks everything
-
-**Never accept, request, or handle a holder's private key or seed phrase in
-conversation.** The holder pastes it once into a hidden local prompt inside the
-tool; from then on the tool signs locally. If a holder offers you a key, tell
-them to run `wallet from-seed` themselves and paste nothing to you.
-
-Never print, log, echo, or commit key material. `assertNoSecretLeak()` in
-`src/vault.mjs` is a backstop, not permission.
-
-## Setup flow
-
-The holder runs ONE command themselves, then you verify it:
+Self-custodied NFT holder toolkit running on this machine. You drive it through
+one command, written below as `hk`:
 
 ```bash
-node bin/holder-kit.mjs setup --wallets 20   # holder runs this, not you
-node bin/holder-kit.mjs check                # you run this
-node bin/holder-kit.mjs doctor --chain <chain>   # MUST pass before anything else
+node {{HK_WRAPPER}} <command> [flags]
 ```
 
-`setup` creates the vault, generates a password into `vault/PASSWORD.txt`,
-makes the wallets, checks the chain, and prints the next step. Never run
-`setup` on the holder's behalf, and never ask for their key.
+That wrapper runs the CLI in **agent mode** (`HOLDER_KIT_AGENT=1`). Always use
+it — never call `bin/holder-kit.mjs` directly, which would skip the agent policy.
+Repo: `{{HK_HOME}}`.
 
-For a holder who already has keys:
+## Rules that outrank everything
 
-```bash
-node bin/holder-kit.mjs wallet from-seed        # holder pastes phrase THEMSELVES
-node bin/holder-kit.mjs wallet backup <path>    # second location, immediately
-node bin/holder-kit.mjs rpc add <url> --name <label>   # holder's own RPC
-```
+1. **Never ask for, accept, print or store a private key, seed phrase or vault
+   password.** If the holder pastes one into chat, tell them it is now exposed,
+   stop, and have them move funds to a fresh wallet (`wallet from-seed` /
+   `wallet new`, run by them in their own terminal).
+2. **Never read or print** `vault/PASSWORD.txt`, `vault/*`, or
+   `config/endpoints.json` (it holds RPC API keys). Do not `cat`, `grep`, copy,
+   upload or summarise them. The CLI reads them itself.
+3. **Never edit the agent policy.** Do not set or change `HOLDER_KIT_AGENT`,
+   `HOLDER_KIT_AGENT_BROADCAST`, `HOLDER_KIT_PASSWORD*`, or `HOLDER_KIT_AUTO`, and
+   never delete `runs/ledger.jsonl`. Those are the holder's controls.
+4. **Report chain state, not guesses.** Availability, prices, balances and
+   ownership come from the command output. Never from a tweet, website or a
+   previous run.
 
-`doctor` proves failover by breaking the first endpoint on purpose. Fewer than
-two usable endpoints means one rate limit will stop a run — tell the holder to
-add a keyed provider before doing anything at scale.
+## What you may do (agent mode enforces this)
 
-## Verification status
-
-Both suites are real and must stay green:
-
-- `npm test` — 72 tests on a local anvil chain with Forge-deployed contracts.
-- `npm run test:testnet` — 23 tests against **live Robinhood Chain testnet**
-  (chain 46630), against a free-mint contract deployed at
-  `0xE76Db0a41E7e0a7125F256679D1b080d0c9810af`. It funds wallets, mints for real
-  with no prompts, transfers NFTs to a real recipient, and reads every result
-  back from the chain. Needs a funded testnet key via
-  `ROBINHOOD_TESTNET_DEPLOYER_KEY`.
-- `npm run verify` — both, in order.
-
-If you touch `src/rpc.mjs`, `src/signer.mjs`, or `src/mint.mjs`, run
-`npm run verify`. Those files carry node-compatibility fixes that are easy to
-break silently (chainId/nonce hex typing, revert-vs-transport handling, fee
-ordering). See the bug table in README.md.
-
-## Command reference
-
-| Intent | Command |
+| Policy (`HOLDER_KIT_AGENT_BROADCAST`, set by the holder) | You can broadcast |
 |---|---|
-| Is anything free/live? | `find [--address 0x...]` — exit 0 when free+live |
-| Mint all free mints, no prompts | `auto [--quantity N]` |
-| Wait for a free window, then mint | `watch --collection 0x... --interval 20` |
-| Send NFTs round-robin to holders | `spread --collection 0x... --to <file> --auto` |
-| Send specific NFTs to specific people | `ship --collection 0x... --plan <file> --auto` |
-| Split gas across wallets | `fund --each 0.005 --to <file> --auto` |
-| What do we hold? | `scan [--chain X]` |
-| Probe one collection's mint rules | `mint-report 0x...` |
+| `none` (default) | nothing — reads and dry runs only |
+| `free-mints` | zero-price mints via `auto` / `watch` / `mint` |
+| `all` | any command, still under the 0.05 / 0.5 ETH ceilings |
 
-Dry run is the default everywhere. `--auto` skips the prompt; `--execute` sends
-after a dry-run preview.
+Always refused in agent mode: `--override-ceilings`, `wallet remove`,
+`wallet change-password`, `wallet restore`. If the CLI exits **2** with
+`agent mode: …`, that is the policy working — show the holder the dry run and
+tell them the exact command to run themselves. Do not look for a workaround.
 
-## Reading mint verdicts correctly
+Check the current policy any time: `hk agents`.
 
-`find` / `auto` derive verdicts from chain state only. Never infer availability
-from a tweet, a website, or a project claim.
+## Standard flow
 
-| Verdict | Meaning | Action |
+```bash
+hk check --json                     # vault unlocks? RPC up? policy?
+hk doctor --chain robinhoodMainnet  # MUST pass before anything touching value
+hk find --json                      # what is free and live right now
+hk scan --json                      # what the wallets hold
+```
+
+If `check` says the vault is missing, the holder runs `setup` **themselves**
+in their own terminal (`node bin/holder-kit.mjs setup`). Never run setup for them.
+
+`doctor` with fewer than 2 working endpoints → stop and ask the holder to add a
+keyed RPC (`rpc add`, run by them; the URL contains an API key).
+
+## Doing things
+
+Every value-moving command is a **dry run unless `--execute` or `--auto` is
+passed**. Always run the dry run first, show the holder the plan, and only add
+`--execute` after they say yes in this conversation.
+
+| Intent | Dry run (always first) | Then, with a clear yes |
 |---|---|---|
-| `free-live` | price 0, not paused, supply left, callable | mint it |
-| `paid-live` | open but costs native | ask the holder before spending |
-| `sold-out` | `totalMinted >= maxSupply` | nothing to do |
-| `closed` | paused, inactive, or no callable shape | nothing to do |
-| `not-a-contract` | no bytecode at that address | wrong address |
+| Mint every free live mint | `hk auto [--collection 0x…]` | add `--auto` |
+| Wait for a free window | `hk watch --collection 0x… --interval 20` | add `--auto` |
+| Probe one collection | `hk mint-report 0x…` | — |
+| Deal NFTs to holders | `hk spread --collection 0x… --to holders.txt` | add `--execute` |
+| Specific token → person | `hk ship --collection 0x… --plan plan.txt` | add `--execute` |
+| Top up gas | `hk fund --each 0.005 [--to list]` | add `--execute` |
 
-`isFree` describes **price**, not availability — a sold-out free mint still
-reports `isFree: true`. **Act on `verdict`, never on `isFree`.**
+`fund` tops each recipient **up to** `--each`; recipients already holding it are
+skipped, so re-running is safe. `spread`/`ship` keep a ledger; re-running after a
+crash resumes and never double-sends.
 
-`verified: false` means the mint shape was detected from bytecode rather than
-gas-estimated. Prefer a funded-wallet probe (`auto`/`watch` do this) before
-minting on an unverified shape.
+## Reading results honestly
 
-## Failure modes worth knowing
+- Act on `verdict`, never on `isFree`. `isFree` is about price; a sold-out free
+  mint is still `isFree: true`.
 
-- **`All N RPC endpoint(s) unavailable`** — real outage or all providers
-  rate-limited. Report it; do not retry blindly.
-- **Reverts are not endpoint failures.** The failover layer does not bench a
-  provider for a revert. If you see `[rpc] ... execution reverted`, the contract
-  answered; read the reason instead of hunting for a bad RPC.
-- **Non-enumerable collections** — `balanceOf` works but token ids cannot be
-  listed. `scan` marks these `enumerable: false`. Do not claim a holder owns
-  specific ids you could not read.
-- **Unfunded wallets** — `mint`/`auto` list underfunded wallets and refuse to
-  run unless `--skip-underfunded`. Fund them with `fund` first.
-- **Run ledger** — a re-run after a crash skips anything already confirmed.
-  Never delete `runs/ledger.jsonl` to "force" a resend; that double-sends.
+  | verdict | meaning |
+  |---|---|
+  | `free-live` | price 0, open, supply left, callable |
+  | `paid-live` | open but costs native — ask before spending |
+  | `sold-out` / `closed` | nothing to do |
+  | `not-a-contract` | wrong address |
 
-## Never
+- `verified: false` = mint shape found in bytecode, not gas-estimated.
+- `enumerable: false` = token ids unknown; only the count is real.
+- A run is done when receipts are confirmed. Report **confirmed / skipped /
+  failed** counts exactly as printed. Never round a partial run up to "done".
+- Exit codes: `0` ok, `1` error or nothing found (`find` exits 1 when nothing
+  is free), `2` refused by a safety rule or agent policy.
 
-- Broadcast on a chain the holder did not name.
-- Add a collection to `config/chains.json` and call it verified without a
-  `doctor` pass on that chain.
-- Report a mint as free based on price alone when `verdict` is `closed`.
-- Move native currency the holder did not ask to move. `fund` is opt-in only.
-- Put a vault path, key, or seed anywhere public.
+## Failure modes
 
-## Environment
-
-- `HOLDER_KIT_VAULT` — override vault path.
-- `HOLDER_KIT_CHAIN` — default chain key.
-- `HOLDER_KIT_AUTO=1` — make `--auto` the default for every command.
-- `HOLDER_KIT_SEED` — seed for non-interactive setup only; prefer the hidden
-  prompt so it never lands in shell history.
+- `All N RPC endpoint(s) unavailable` — real outage or every provider throttled.
+  Report it; don't loop.
+- `call would revert, not broadcast` — the contract said no (closed, limit,
+  sold out). Not an RPC problem.
+- `vault is locked …` — no password source. The holder fixes it; never ask for
+  the password.
+- `safety ceiling exceeded` — split the run. Never suggest `--override-ceilings`
+  to get around it; only the holder may choose that, in their own terminal.

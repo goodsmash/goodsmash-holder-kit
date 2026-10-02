@@ -46,9 +46,12 @@ That's it. `setup` is safe to re-run and never overwrites what you already have.
 It will:
 
 1. **create your encrypted vault** — it generates a strong random password,
-   saves it to `vault/PASSWORD.txt`, and prints the path. Put that somewhere
-   safe (not in the repo, not in a screenshot). You can replace it later with
-   `wallet change-password`.
+   saves it to `vault/PASSWORD.txt`, and prints the path. Every later command
+   unlocks the vault from that file, so you never type it. Keep a copy somewhere
+   safe (not in the repo, not in a screenshot). Replace it any time with
+   `wallet change-password`. Setup **never** overwrites an existing password
+   file, and if a vault exists but no password can be found it stops instead
+   of inventing a new one.
 2. **generate a wallet** (or import a seed phrase if you pass one)
 3. **check the chain** is reachable and print the block, chain id, and gas price
 4. **verify your RPCs** are usable and report failover status
@@ -76,6 +79,11 @@ node bin/holder-kit.mjs setup --wallets 20
 Everything after that runs unattended: `--auto` skips per-transaction
 confirmation (the vault still has to be unlocked, locally).
 
+Password lookup order, for every command: `HOLDER_KIT_PASSWORD` →
+`HOLDER_KIT_PASSWORD_FILE` → `vault/PASSWORD.txt` → hidden prompt. Set
+`HOLDER_KIT_NO_PASSWORD_FILE=1` if you'd rather always type it. Passwords and
+seed phrases are refused as command-line arguments (they'd land in shell history).
+
 ---
 
 ## Already have keys? Skip the vault setup
@@ -92,6 +100,9 @@ node bin/holder-kit.mjs wallet add keys.json
 
 # Back the vault up somewhere else, NOW
 node bin/holder-kit.mjs wallet backup D:/my-cold-backup.vault
+
+# Bring wallets back from a backup (merges, never deletes)
+node bin/holder-kit.mjs wallet restore D:/my-cold-backup.vault
 ```
 
 After this you never sign anything by hand again. Every command below reads
@@ -122,8 +133,15 @@ node bin/holder-kit.mjs rpc add https://…second-key… --name backup
 node bin/holder-kit.mjs bench --chain robinhoodMainnet
 ```
 
-Your providers are written to `config/endpoints.json`, which is **gitignored** —
-your API keys never leave your machine and never land in the repo.
+Your providers are written to `config/endpoints.json`, which is **gitignored**
+(and written `0600`) — your API keys never leave your machine and never land in
+the repo. To keep a key out of shell history too:
+`HOLDER_KIT_RPC_URL=https://… node bin/holder-kit.mjs rpc add --name main`.
+
+> **Upgrading from 1.0?** `config/endpoints.json` used to be committed by
+> mistake, so `rpc add` was writing your API keys into a tracked file. 1.1 stops
+> tracking it. If you added keys, copy the file somewhere before `git pull`,
+> put it back after, and rotate any key you may have pushed.
 
 ### The manual way
 
@@ -173,15 +191,22 @@ when something is free and live, so you can script on it.
 ### Mint it automatically
 
 ```bash
-# find every free live mint and mint from all your wallets
+# preview: find every free live mint and show what would be minted
 node bin/holder-kit.mjs auto --quantity 1
+
+# do it: mint every free live mint from all your wallets
+node bin/holder-kit.mjs auto --quantity 1 --auto
+
+# just one collection
+node bin/holder-kit.mjs auto --collection 0xYourCollection --auto
 
 # or watch one collection and fire the moment a free window opens
 node bin/holder-kit.mjs watch --collection 0xYourCollection --interval 20
 ```
 
-No prompts. It polls, detects the window from chain state, and mints from every
-funded wallet in your vault.
+With `--auto` there are no prompts: it polls, detects the window from chain
+state, and mints from every funded wallet in your vault. Without it, `auto` is
+a dry run like everything else. Only zero-price mints are ever sent by `auto`.
 
 ### Send NFTs to other wallets
 
@@ -202,7 +227,12 @@ confirmed transfer in a run ledger — re-running after a crash never double-sen
 
 ```bash
 node bin/holder-kit.mjs fund --each 0.005 --to wallets.txt --auto
+node bin/holder-kit.mjs fund --each 0.005 --auto     # no --to = every other vault wallet
 ```
+
+`fund` **tops up** each recipient to `--each`: a wallet that already has it is
+skipped, one that has part of it gets only the difference. Re-running after a
+crash never double-pays. `--exact` sends the full amount regardless.
 
 ### See what you hold
 
@@ -221,9 +251,12 @@ NFT ids and native balance per wallet, per collection.
 | Dry run | **Default.** Prints the plan, sends nothing. |
 | `--auto` | Skips the prompt. Ceilings still apply. |
 | Ownership check | Refuses to sign a transfer the wallet doesn't own. |
-| Run ledger | Never re-sends a confirmed transfer. |
-| Per-tx ceiling | 0.05 ETH by default; `--override-ceilings` to exceed. |
+| Run ledger | Never re-sends a confirmed transfer. `fund` tops up instead of re-sending. |
+| Per-tx ceiling | 0.05 ETH by default, enforced on `fund` and paid `mint`; `--override-ceilings` to exceed. |
 | Per-run ceiling | 0.5 ETH by default. |
+| Agent mode | `HOLDER_KIT_AGENT=1`: broadcasting limited to what the holder allowed; ceiling overrides always refused. |
+| Atomic vault writes | Written to a temp file, decrypted back, then renamed — a crash can't corrupt the vault. |
+| Idempotent broadcast | If an RPC accepts a tx but the reply is lost, failover recognises the same tx instead of reporting a failure. |
 | Testnet gate | Refuses testnet without `--i-know-this-is-testnet`. |
 | Wrong password | Vault rejects it, and detects a single flipped bit. |
 
@@ -247,52 +280,131 @@ node bin/holder-kit.mjs chains
 
 ---
 
-## For AI agents
+## For AI agents — Hermes (local)
 
-`agents/SKILL.md` and `agents/AGENTS.md` let any agent drive this toolkit
-end-to-end. Point your agent at them and it can set up wallets, verify RPCs,
-scan holdings, and run auto-mints without hand-holding.
+holder-kit ships a skill for a locally running [Hermes Agent](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills).
+One command installs it into `~/.hermes/skills/holder-kit/`:
+
+```bash
+npm run hermes:install                               # agent can read + dry-run only (default)
+npm run hermes:install -- --broadcast free-mints     # agent may also send zero-price mints
+npm run hermes:install -- --broadcast all            # agent may send anything, under the ceilings
+npm run hermes:uninstall
+```
+
+Then restart Hermes and ask it something like *"use holder-kit to check my
+setup and tell me what's free to mint"*.
+
+How it stays safe:
+
+- The skill tells Hermes to call **one wrapper** (`scripts/hk.mjs` in the skill
+  folder). The wrapper forces agent mode and reads the broadcast level from the
+  `policy.json` *you* chose at install time — environment variables from the
+  agent can't raise it.
+- Agent mode is enforced **in the CLI**: a broadcast the policy doesn't allow
+  exits with code 2, `--override-ceilings` is always refused, and
+  `wallet remove / change-password / restore` are holder-only.
+- Hermes never needs your password: the vault unlocks from `vault/PASSWORD.txt`.
+  The skill forbids reading that file or `config/endpoints.json`.
+- `--json` on `check`, `find`, `scan`, `wallet list` and `chains` gives the agent
+  structured output instead of coloured text.
+
+It's a guardrail, not a sandbox — an agent with an unrestricted shell as you
+could still read your files. Keep Hermes' own tool permissions tight.
+
+Other agents: `agents/SKILL.md` and `agents/AGENTS.md` are plain markdown. Run
+the CLI with `HOLDER_KIT_AGENT=1` and `HOLDER_KIT_AGENT_BROADCAST=<level>`.
 
 ---
 
-## Don't want a terminal? There's a UI
+## Don't want a terminal? There's an app
 
-```bash
-npm run ui
-```
+![holder-kit home screen](docs/screenshots/home-dark.png)
 
-Then open **http://127.0.0.1:7799**.
+### Start it — double-click
 
-Everything the CLI does is in the page: set up, check, add RPCs, speed-test them,
-generate and back up wallets, find and auto-mint free NFTs, send NFTs to holders,
-and fund wallets.
+| Mac | Windows | Linux / WSL |
+|---|---|---|
+| **`Start holder-kit (Mac).command`** | **`Start holder-kit (Windows).bat`** | `./start-ui.sh` |
+
+The launcher checks you have Node.js 20+ (and opens the download page if not),
+installs dependencies the first time, starts holder-kit and opens your browser.
+Close the window to stop it. From a terminal it's just `npm run ui`.
+
+> **Mac, first time:** if macOS says the file "can't be opened", right-click it →
+> **Open** → **Open**. If you downloaded a ZIP instead of `git clone`, run
+> `chmod +x "Start holder-kit (Mac).command"` once.
+
+If port 7799 is busy the app picks the next free one and prints the link.
+
+### What's in it
+
+| Screen | What you can do |
+|---|---|
+| **Home** | One-click first-run setup, then live status: vault, wallet count, chain block, mode |
+| **Wallets** | Every address with live balances and copy buttons, generate more, write/restore an encrypted backup |
+| **Free mints** | Scan one or several collections; cards show FREE · LIVE / PAID / SOLD OUT / CLOSED from chain state; mint with one click; watch a collection and stop it any time |
+| **Send NFTs** | Spread to a holder list or ship specific token ids, with live validation (bad addresses and duplicates flagged before anything runs); see what your wallets hold |
+| **Gas** | Top every wallet up to a target from a wallet you pick |
+| **RPC speed** | Add a provider (the URL field is masked), rank endpoints by real latency, run the doctor and see failover proven |
+| **Activity** | Every command this session ran, with its full output |
+
+<p>
+<img src="docs/screenshots/mints-dark.png" width="49%" alt="Free mint scanner">
+<img src="docs/screenshots/confirm-dark.png" width="49%" alt="Live mode confirmation">
+</p>
+
+**Preview vs Live.** The switch in the top-right decides what every button
+does. In **Preview** (the default) each action is a dry run that shows its plan.
+In **Live** a red banner stays on screen, and every action shows the exact
+command and asks *Sign & send* before anything is signed.
+
+Also: light/dark/auto theme, works from phone width up to a 4K monitor,
+<kbd>1</kbd>–<kbd>7</kbd> switch screens, <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs a
+screen's main action, long runs stream their output live with a **Stop** button.
+
+<img src="docs/screenshots/wallets-light.png" width="66%" alt="Wallets, light theme"> <img src="docs/screenshots/phone-dark.png" width="22%" alt="Phone layout">
+
+### Safety of the app itself
 
 **It runs on your machine only.** It binds to `127.0.0.1`, so nothing on your
-network — phone, other laptop, the internet — can reach it. There is no
-account, no telemetry, and no outbound request of any kind.
+network — phone, other laptop, the internet — can reach it. No account, no
+telemetry, no outbound request from the page.
 
-Two things worth knowing:
+- **The page contains no wallet logic.** Every button runs the same CLI the
+  test suites prove, so the app can't drift from what's verified.
+- **Your password** (only needed if `vault/PASSWORD.txt` isn't there) lives in
+  the tab's memory, is handed to one CLI process per command, and is never
+  written to disk, logged, or sent back to the browser.
+- **One value-moving command at a time.** A second send while one is running is
+  refused, so two runs can never race for the same wallet nonce.
+- **Token names are shown as text, never HTML** — a collection can't inject
+  script into the page by naming itself `<img onerror=…>`.
+- Per-launch token on every request, `Host` allow-list (DNS-rebinding),
+  same-origin check, JSON-only requests, strict CSP, no framing, and
+  `wallet remove` / `change-password` kept out of the browser.
 
-- **The page contains no wallet logic.** Every button shells out to the same
-  CLI the test suites prove, so the UI can't drift from what's verified.
-- **Your password is piped to the local process for one command and then
-  forgotten** — never written to disk, never logged, never sent back to the
-  browser. `setup` ignores the field entirely and generates its own.
-
-The UI only allows an explicit list of commands, refuses cross-origin requests,
-and rejects unknown `wallet` sub-actions — `test/ui-tests.mjs` asserts all of
-that, including that the port really is unreachable from your LAN address.
+`test/ui-tests.mjs` asserts the security boundary; `test/ui-e2e.mjs` clicks
+through every screen in a real browser against a real local chain and checks
+each send **on chain**.
 
 ---
 
 ## Tests — both suites are real
 
 ```bash
-npm test          # 72 tests: local anvil + Forge-deployed contracts
-npm run test:ui   # 17 tests: the local UI's security boundary
-npm run test:testnet   # 23 tests: LIVE Robinhood Chain TESTNET (46630)
-npm run verify    # all three, in order
+npm test                 # 72 + 39 + 51: anvil suite, UI boundary, hardening regressions
+npm run test:hardening   # 51 tests: the hardening fixes, on local anvil
+npm run test:ui          # 39 tests: the local app's security boundary, streaming, cancel, locking
+npm run test:e2e         # 60 tests: real browser, every screen, every send verified on chain
+npm run test:testnet     # 23 tests: LIVE Robinhood Chain TESTNET (46630)
+npm run verify           # everything, in order
 ```
+
+`test:e2e` needs Playwright (`npm i -D playwright && npx playwright install chromium`)
+and runs the whole flow as many times as you like: `E2E_ROUNDS=3 npm run test:e2e`.
+
+`npm test` needs [Foundry](https://getfoundry.sh) (`anvil`, `forge`, `cast`) on your PATH.
 
 **`npm test` — 72 passing.** A real local anvil chain with real Forge-deployed
 contracts. Covers ABI encoding against known selectors, vault
@@ -460,6 +572,41 @@ couldn't fully verify — exactly the behaviour you want when real NFTs are on
 the line.
 
 ---
+
+### Fixed in 1.2 (found by the browser end-to-end test)
+
+| Bug | What could happen | Fix |
+|---|---|---|
+| `spread` dealt with `(jobs.length + i)` — counting every token twice | With an **even** number of recipients, every NFT went to only half of them | Deal by global position; e2e checks each recipient's balance on chain |
+| `decodeString` skipped a word | Every collection name read as empty (short names) or garbage with NUL bytes (long names) | Correct ABI offset; `bytes32` names (old tokens) also decode |
+| Status / wallet loads could finish out of order | Switching chain right after opening the app showed every balance as "unknown" | Only the newest request may paint |
+| The output panel covered the last buttons on a page | Buttons unreachable without collapsing it | Page reserves the panel's height |
+| Tiny prices rounded to `0 ETH` | A 1000-wei mint looked free | wei / gwei shown for small amounts |
+
+### Fixed in 1.1 (hardening pass)
+
+Each of these has a regression test in `test/hardening-tests.mjs`.
+
+| Bug | What could happen | Fix |
+|---|---|---|
+| Non-interactive `setup` re-run generated a NEW password and overwrote the password file | Vault permanently unopenable — the real password was gone | Existing password file is never overwritten; with a vault but no password, setup stops |
+| Setup saved `vault-password.txt`, docs said `PASSWORD.txt`, and **no command read it** | "Never type a password again" was not true | One lookup order for every command; `PASSWORD.txt` (legacy name still read) |
+| `config/endpoints.json` was committed and not gitignored | `rpc add` wrote RPC API keys into a tracked file | Untracked, gitignored, written `0600` |
+| `fund` only paid as many recipients as you had vault wallets | Recipients silently skipped | Every recipient is funded |
+| `fund` had no ledger | Re-running after a crash paid everyone twice | Top-up semantics: re-runs send only what's missing |
+| Ceilings (0.05 / 0.5 ETH) were defined but never called | No limit on `fund` or paid `mint` | Enforced on both |
+| `auto` broadcast with no flag | Contradicted "dry run by default"; an agent running `auto` minted for real | `auto` is a dry run unless `--auto`/`--execute` |
+| `auto --collection X` ignored the flag | Scanned and minted every configured collection | `--collection` honoured |
+| Dry runs prompted "Type y" then sent nothing, and exited 2 without a TTY | Agents and the UI saw a good dry run as a failure | Dry runs print the plan and exit 0 |
+| `wallet new 20` made one wallet | Positional count ignored | Count honoured |
+| `mint` reassigned a `const` | TypeError on some mint shapes | Fixed |
+| Every `-32000` RPC error was treated as "the chain said no" | A lagging node (`header not found`) killed the run instead of failing over | Only real request errors stop; node problems fail over |
+| Broadcast reply lost → failover → "already known" / "nonce too low" | A sent transaction reported as failed | Tx hash computed locally; failover waits on it |
+| A transient error while waiting for a receipt | Mined tx reported as failed | Receipt polling rides out blips |
+| `ship` passed unvalidated recipients to the encoder | A typo could produce a bad transfer | Whole plan validated first, errors name the line |
+| UI had no CSRF token or Host check | Any local web origin trick / DNS rebinding could drive it | Per-launch token, Host allowlist, JSON-only, CSP |
+| `wallet change-password` / `restore` documented and allowlisted but not implemented | Commands failed | Implemented (password file kept in step) |
+| `--password` / `--phrase` on argv | Secrets in shell history and `ps` | Refused |
 
 ### Bugs this testing caught (and fixed)
 

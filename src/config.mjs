@@ -36,7 +36,7 @@ export function resolveChain(chainKey, opts = {}) {
     );
   }
 
-  const userCfgPath = opts.endpointsFile || join(ROOT, 'config', 'endpoints.json');
+  const userCfgPath = opts.endpointsFile || process.env.HOLDER_KIT_ENDPOINTS || join(ROOT, 'config', 'endpoints.json');
   const userCfg = readJson(userCfgPath) || {};
   const providers = userCfg.providers || {};
   const assignedNames = userCfg.assignments?.[chainKey] || [];

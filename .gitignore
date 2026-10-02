@@ -22,6 +22,12 @@ mnemonic*
 **/*key*.json
 **/*secret*.json
 
+# Your RPC provider URLs carry API keys. `rpc add` writes here; the committed
+# template is config/endpoints.example.json.
+config/endpoints.json
+PASSWORD.txt
+vault-password.txt
+
 # Agent runtime state
 runs/
 # Foundry build output — regenerable, and large

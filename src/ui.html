@@ -3,289 +3,1282 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>holder-kit</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2310b981'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11.5' stroke='white' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
-  /* Colours come from the host app when previewed; fall back for a plain browser. */
   :root {
-    --bg: #0d0f12; --card: #14171c; --fg: #e7e9ee; --mut: #8b93a1;
-    --acc: #6ee7b7; --warn: #fbbf24; --err: #f87171; --line: #232830;
+    --bg: #0b0d10; --bg2: #101318; --card: #151920; --card2: #1b2029; --fg: #e8ebf0; --mut: #8d96a5; --faint: #5d6574;
+    --line: #232934; --line2: #2e3542;
+    --acc: #34d399; --acc-ink: #04120c; --acc-soft: rgba(52, 211, 153, .12);
+    --warn: #fbbf24; --warn-soft: rgba(251, 191, 36, .12);
+    --err: #f87171; --err-soft: rgba(248, 113, 113, .12);
+    --info: #60a5fa; --info-soft: rgba(96, 165, 250, .12);
+    --live: #ef4444;
+    --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    --mono: ui-monospace, "SF Mono", Menlo, "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Helvetica Neue", sans-serif;
+    --r: 12px;
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f6f8; --bg2: #eef0f3; --card: #ffffff; --card2: #f7f8fa; --fg: #12161c; --mut: #5a6372; --faint: #8b93a1;
+    --line: #e3e6eb; --line2: #d5d9e0; --acc: #059669; --acc-ink: #ffffff; --acc-soft: rgba(5, 150, 105, .1);
+    --warn: #b45309; --warn-soft: rgba(217, 119, 6, .1); --err: #dc2626; --err-soft: rgba(220, 38, 38, .08);
+    --info: #2563eb; --info-soft: rgba(37, 99, 235, .08); --shadow: 0 10px 30px rgba(16, 24, 40, .12);
   }
   @media (prefers-color-scheme: light) {
-    :root { --bg:#f6f7f9; --card:#fff; --fg:#14171c; --mut:#5b6472; --line:#e2e5ea; }
+    :root:not([data-theme="dark"]) {
+      --bg: #f5f6f8; --bg2: #eef0f3; --card: #ffffff; --card2: #f7f8fa; --fg: #12161c; --mut: #5a6372; --faint: #8b93a1;
+      --line: #e3e6eb; --line2: #d5d9e0; --acc: #059669; --acc-ink: #ffffff; --acc-soft: rgba(5, 150, 105, .1);
+      --warn: #b45309; --warn-soft: rgba(217, 119, 6, .1); --err: #dc2626; --err-soft: rgba(220, 38, 38, .08);
+      --info: #2563eb; --info-soft: rgba(37, 99, 235, .08); --shadow: 0 10px 30px rgba(16, 24, 40, .12);
+    }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; } /* .btn/.field set display; hidden must still win */
+  html, body { height: 100%; }
   body {
-    margin: 0; padding: 24px; background: var(--bg); color: var(--fg);
-    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility;
   }
-  main { max-width: 1080px; margin: 0 auto; }
-  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -0.01em; }
-  .sub { color: var(--mut); font-size: 13.5px; margin-bottom: 22px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
-       color: var(--mut); margin: 0 0 10px; font-weight: 600; }
-  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); }
-  section {
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px;
+  button, input, select, textarea { font: inherit; color: inherit; }
+  code, .mono { font-family: var(--mono); font-size: .92em; }
+  a { color: var(--info); }
+  :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 6px; }
+  ::selection { background: var(--acc-soft); }
+  /* Windows scrollbars look heavy by default; make them match the theme. */
+  * { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 10px; border: 2px solid transparent; background-clip: padding-box; }
+
+  /* ---------- shell ---------- */
+  .app { display: grid; grid-template-columns: 236px minmax(0, 1fr); min-height: 100vh; }
+  .side {
+    position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; gap: 4px;
+    padding: 18px 12px; border-right: 1px solid var(--line); background: var(--bg2);
   }
-  button {
-    font: inherit; font-size: 13.5px; padding: 7px 12px; border-radius: 8px;
-    border: 1px solid var(--line); background: transparent; color: var(--fg);
-    cursor: pointer; transition: border-color .12s, background .12s;
+  .brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 16px; }
+  .logo { width: 30px; height: 30px; border-radius: 9px; background: var(--acc); display: grid; place-items: center; flex: none; }
+  .logo svg { width: 18px; height: 18px; }
+  .brand b { font-size: 15px; letter-spacing: -.01em; display: block; }
+  .brand span { font-size: 11.5px; color: var(--mut); }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav button {
+    display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: 8px;
+    background: transparent; color: var(--mut); cursor: pointer; text-align: left; font-size: 13.5px;
   }
-  button:hover:not(:disabled) { border-color: var(--acc); }
-  button:disabled { opacity: .45; cursor: not-allowed; }
-  button.go { border-color: var(--acc); color: var(--acc); font-weight: 600; }
-  button.go:hover:not(:disabled) { background: color-mix(in srgb, var(--acc) 12%, transparent); }
-  .row { display: flex; flex-wrap: wrap; gap: 7px; }
-  label { display: block; font-size: 12.5px; color: var(--mut); margin: 0 0 4px; }
-  input, select, textarea {
-    width: 100%; font: inherit; font-size: 13.5px; padding: 7px 10px; border-radius: 8px;
-    border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  .nav button svg { width: 17px; height: 17px; flex: none; opacity: .9; }
+  .nav button:hover { background: var(--card); color: var(--fg); }
+  .nav button[aria-current="page"] { background: var(--card2); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+  .nav button .k { margin-left: auto; font-size: 11px; color: var(--faint); font-family: var(--mono); }
+  .side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 10px 6px 0; border-top: 1px solid var(--line); }
+  .side-foot label { font-size: 11.5px; color: var(--mut); }
+  .pwrow { display: flex; gap: 6px; }
+  .pwrow input { flex: 1; min-width: 0; }
+  .hint { font-size: 11.5px; color: var(--faint); }
+
+  .main { display: flex; flex-direction: column; min-width: 0; }
+  .livebar {
+    display: none; background: var(--live); color: #fff; font-size: 12.5px; font-weight: 600; text-align: center;
+    padding: 5px 12px; letter-spacing: .01em;
   }
-  textarea { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; resize: vertical; }
-  .field { margin-bottom: 10px; }
-  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .note {
-    font-size: 12.5px; color: var(--mut); margin-top: 10px;
-    border-left: 2px solid var(--line); padding-left: 10px;
+  body.live .livebar { display: block; }
+  .top {
+    position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 28px; background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: saturate(160%) blur(10px); -webkit-backdrop-filter: saturate(160%) blur(10px);
+    border-bottom: 1px solid var(--line);
   }
-  .warn { color: var(--warn); }
-  pre {
-    background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
-    padding: 13px; overflow: auto; max-height: 340px; font-size: 12.5px; line-height: 1.5;
-    font-family: ui-monospace, "Cascadia Code", Consolas, monospace; white-space: pre-wrap;
-    word-break: break-word; margin: 0;
+  .top h1 { font-size: 18px; margin: 0; letter-spacing: -.015em; font-weight: 650; }
+  .top .spacer { flex: 1; }
+  .status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--mut);
+            padding: 5px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--card); }
+  .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--faint); flex: none; }
+  .dot.ok { background: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+  .dot.bad { background: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-soft); }
+  .dot.spin { background: var(--info); animation: pulse 1s infinite ease-in-out; }
+  @keyframes pulse { 50% { opacity: .35; } }
+
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); }
+  .seg button { border: 0; background: transparent; padding: 5px 12px; border-radius: 7px; cursor: pointer; color: var(--mut); font-size: 13px; font-weight: 550; }
+  .seg button[aria-pressed="true"] { background: var(--card2); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.2), inset 0 0 0 1px var(--line2); }
+  .seg button.livebtn[aria-pressed="true"] { background: var(--live); color: #fff; box-shadow: none; }
+
+  .content { padding: 24px 28px calc(var(--con-h, 42px) + 40px); max-width: 1180px; width: 100%; }
+  .page { display: none; animation: fade .16s ease-out; }
+  .page.on { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+  .lede { color: var(--mut); margin: 0 0 18px; max-width: 72ch; }
+
+  /* ---------- building blocks ---------- */
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .grid.two { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 18px; min-width: 0; }
+  .card + .card { margin-top: 14px; }
+  .grid > .card + .card { margin-top: 0; }
+  .card h2 { font-size: 14.5px; margin: 0 0 4px; font-weight: 650; letter-spacing: -.005em; }
+  .card .sub { color: var(--mut); font-size: 13px; margin: 0 0 14px; }
+  .eyebrow { font-size: 11.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--mut); font-weight: 600; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; min-width: 0; }
+  .field > label { font-size: 12.5px; color: var(--mut); font-weight: 500; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
+  .row > .field { flex: 1 1 160px; margin-bottom: 0; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  input[type=text], input[type=password], input[type=number], input:not([type]), select, textarea {
+    width: 100%; padding: 8px 11px; border-radius: 9px; border: 1px solid var(--line2); background: var(--bg);
+    font-size: 13.5px; transition: border-color .12s, box-shadow .12s; min-width: 0;
   }
-  pre:empty { display: none; }
-  .busy { color: var(--acc); font-size: 12.5px; }
-  #pw { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
-  .pill {
-    display: inline-block; font-size: 11.5px; padding: 2px 8px; border-radius: 99px;
-    border: 1px solid var(--line); color: var(--mut); margin-left: 6px;
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px var(--acc-soft); }
+  input.bad, textarea.bad { border-color: var(--err); box-shadow: 0 0 0 3px var(--err-soft); }
+  textarea { font-family: var(--mono); font-size: 12.5px; resize: vertical; min-height: 92px; line-height: 1.55; }
+  select { appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238d96a5' stroke-width='2.5'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 10px center; }
+  .top select { width: auto; min-width: 210px; background-color: var(--card); }
+  .check { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--mut); cursor: pointer; }
+  .check input { width: 16px; height: 16px; accent-color: var(--acc); margin: 0; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 14px; border-radius: 9px;
+    border: 1px solid var(--line2); background: var(--card2); cursor: pointer; font-size: 13.5px; font-weight: 550;
+    transition: background .12s, border-color .12s, transform .05s, opacity .12s; white-space: nowrap;
   }
+  .btn:hover:not(:disabled) { border-color: var(--faint); }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn svg { width: 15px; height: 15px; }
+  .btn.primary { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+  .btn.primary:hover:not(:disabled) { filter: brightness(1.07); border-color: var(--acc); }
+  .btn.danger { background: var(--live); border-color: var(--live); color: #fff; }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--mut); }
+  .btn.ghost:hover:not(:disabled) { color: var(--fg); background: var(--card2); border-color: var(--line); }
+  .btn.sm { padding: 5px 10px; font-size: 12.5px; border-radius: 8px; }
+  .btn.icon { padding: 6px; width: 32px; height: 32px; }
+  .kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line2); color: var(--mut); }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; padding: 2px 8px;
+           border-radius: 99px; letter-spacing: .02em; white-space: nowrap; border: 1px solid transparent; }
+  .badge.ok { background: var(--acc-soft); color: var(--acc); }
+  .badge.warn { background: var(--warn-soft); color: var(--warn); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.info { background: var(--info-soft); color: var(--info); }
+  .badge.mut { background: var(--card2); color: var(--mut); border-color: var(--line); }
+
+  .note { font-size: 12.5px; color: var(--mut); border-left: 2px solid var(--line2); padding: 2px 0 2px 10px; margin: 12px 0 0; }
+  .note.warn { border-color: var(--warn); color: var(--fg); }
+  .callout { display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: var(--info-soft); color: var(--fg); font-size: 13px; margin-bottom: 14px; }
+  .callout.warn { background: var(--warn-soft); }
+  .callout.err { background: var(--err-soft); }
+  .callout.ok { background: var(--acc-soft); }
+  .callout svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+
+  /* tiles */
+  .tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 14px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; min-width: 0; }
+  .tile .v { font-size: 22px; font-weight: 650; letter-spacing: -.02em; margin-top: 4px; font-variant-numeric: tabular-nums;
+             overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .d { font-size: 12.5px; color: var(--mut); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .eyebrow { display: flex; align-items: center; gap: 7px; }
+
+  /* tables */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--mut);
+       background: var(--card2); padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: color-mix(in srgb, var(--card2) 60%, transparent); }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .addr { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12.5px; }
+  .copy { border: 0; background: transparent; color: var(--faint); cursor: pointer; padding: 3px; border-radius: 5px; display: inline-grid; place-items: center; }
+  .copy:hover { color: var(--fg); background: var(--card2); }
+  .copy svg { width: 13px; height: 13px; }
+  .addr .sh { display: none; }
+  @media (max-width: 1100px) { .addr .full { display: none; } .addr .sh { display: inline; } }
+  @media (max-width: 640px) { .note-col { display: none; } td, th { padding: 9px 8px; } }
+  .empty { text-align: center; color: var(--mut); padding: 34px 16px; font-size: 13.5px; }
+  .empty b { display: block; color: var(--fg); font-size: 14.5px; margin-bottom: 4px; }
+
+  /* mint cards */
+  .mints { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); margin-top: 14px; }
+  .mint { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .mint.free { border-color: color-mix(in srgb, var(--acc) 55%, var(--line)); }
+  .mint .head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+  .mint .name { font-weight: 650; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12.5px; }
+  .kv dt { color: var(--mut); }
+  .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .progress { height: 6px; border-radius: 9px; background: var(--card2); overflow: hidden; }
+  .progress > i { display: block; height: 100%; background: var(--acc); border-radius: 9px; }
+
+  /* steps (onboarding) */
+  .steps { list-style: none; padding: 0; margin: 14px 0 0; display: grid; gap: 10px; counter-reset: s; }
+  .steps li { display: flex; gap: 12px; align-items: flex-start; font-size: 13.5px; color: var(--mut); }
+  .steps li::before { counter-increment: s; content: counter(s); flex: none; width: 24px; height: 24px; border-radius: 99px;
+    display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--card2); color: var(--fg); border: 1px solid var(--line2); }
+  .steps li b { color: var(--fg); }
+  .hero { padding: 26px; background: linear-gradient(135deg, var(--acc-soft), transparent 60%), var(--card); }
+  .hero h2 { font-size: 20px; letter-spacing: -.02em; }
+
+  /* tabs */
+  .tabs { display: inline-flex; gap: 2px; padding: 3px; background: var(--card2); border-radius: 10px; border: 1px solid var(--line); margin-bottom: 14px; }
+  .tabs button { border: 0; background: transparent; color: var(--mut); padding: 6px 14px; border-radius: 7px; cursor: pointer; font-weight: 550; font-size: 13px; }
+  .tabs button[aria-selected="true"] { background: var(--card); color: var(--fg); box-shadow: inset 0 0 0 1px var(--line2); }
+
+  .counter { font-size: 12px; color: var(--mut); margin-top: 6px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .counter .bad { color: var(--err); }
+  .counter .good { color: var(--acc); }
+
+  /* activity */
+  .act { display: flex; flex-direction: column; gap: 8px; }
+  .act-item { display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px; align-items: center; padding: 10px 14px;
+              border: 1px solid var(--line); border-radius: 10px; background: var(--card); cursor: pointer; text-align: left; width: 100%; }
+  .act-item:hover { border-color: var(--line2); }
+  .act-item code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .act-item .t { color: var(--faint); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+  /* console drawer */
+  .console {
+    position: fixed; right: 0; bottom: 0; left: 236px; z-index: 20; background: var(--bg2); border-top: 1px solid var(--line2);
+    box-shadow: 0 -8px 30px rgba(0,0,0,.25); display: flex; flex-direction: column; max-height: 38vh; transition: transform .2s ease;
+  }
+  .console.collapsed { transform: translateY(calc(100% - 42px)); }
+  .console .bar { display: flex; align-items: center; gap: 10px; padding: 7px 14px 7px 18px; min-height: 42px; cursor: pointer; user-select: none; }
+  .console .bar .title { font-weight: 600; font-size: 13px; }
+  .console .bar .cmd { font-family: var(--mono); font-size: 12px; color: var(--mut); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+  .console pre {
+    margin: 0; padding: 12px 18px 18px; overflow: auto; font-family: var(--mono); font-size: 12.5px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word; flex: 1; min-height: 140px; border-top: 1px solid var(--line);
+  }
+  .console pre .e { color: var(--warn); }
+  .console pre .ok { color: var(--acc); }
+  .console pre .fail { color: var(--err); }
+  .chev { transition: transform .2s; width: 16px; height: 16px; color: var(--mut); }
+  .console.collapsed .chev { transform: rotate(180deg); }
+
+  /* modal */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 50; display: none; place-items: center; padding: 16px; }
+  .scrim.on { display: grid; animation: fade .12s; }
+  .modal { width: min(520px, 100%); background: var(--card); border: 1px solid var(--line2); border-radius: 14px; box-shadow: var(--shadow); padding: 22px; }
+  .modal h3 { margin: 0 0 6px; font-size: 17px; letter-spacing: -.01em; }
+  .modal p { margin: 0 0 12px; color: var(--mut); font-size: 13.5px; }
+  .modal pre { background: var(--bg); border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; font-family: var(--mono);
+               font-size: 12px; white-space: pre-wrap; word-break: break-all; margin: 0 0 14px; max-height: 160px; overflow: auto; }
+  .modal .actions { justify-content: flex-end; }
+
+  /* toasts */
+  .toasts { position: fixed; top: 16px; right: 16px; z-index: 60; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+  .toast { pointer-events: auto; min-width: 240px; max-width: 380px; padding: 11px 14px; border-radius: 10px; background: var(--card);
+           border: 1px solid var(--line2); box-shadow: var(--shadow); font-size: 13px; display: flex; gap: 10px; align-items: flex-start; animation: fade .15s; }
+  .toast .dot { margin-top: 6px; }
+
+  .spinner { width: 14px; height: 14px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 99px; animation: spin .7s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    .side { position: sticky; top: 0; z-index: 10; height: auto; flex-direction: row; align-items: center; gap: 8px; padding: 8px 10px;
+            border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .brand { padding: 0 6px 0 2px; }
+    .brand div { display: none; }
+    .nav { flex-direction: row; }
+    .nav button { width: auto; white-space: nowrap; padding: 7px 10px; }
+    .nav button .k { display: none; }
+    .side-foot { display: none; }
+    .top { position: static; padding: 12px 16px; }
+    .top select { min-width: 0; flex: 1; }
+    .content { padding: 16px 16px calc(var(--con-h, 42px) + 32px); }
+    .console { left: 0; }
+    .grid.two { grid-template-columns: 1fr; }
+    body.needs-pw .mobile-pw { display: block !important; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
-<main>
-  <h1>holder-kit <span class="pill">local only</span></h1>
-  <p class="sub">
-    Runs on your own machine. Your password is sent to the local process and never
-    saved, logged, or sent anywhere. Nothing on this page talks to the internet.
-  </p>
-
-  <section style="margin-bottom:14px">
-    <h2>Vault password</h2>
-    <div class="two">
-      <div>
-        <label for="pw">Password (needed for anything that touches your wallets)</label>
-        <input id="pw" type="password" autocomplete="current-password" placeholder="your vault password">
+<div class="app">
+  <aside class="side" aria-label="Main">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <div><b>holder-kit</b><span>local · self-custody</span></div>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-page="home" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home<span class="k">1</span></button>
+      <button data-page="wallets"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="2"/><path d="M16 13h2M3 10h18M7 6V4h10v2"/></svg>Wallets<span class="k">2</span></button>
+      <button data-page="mints"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2.6 5.6L20 9.3l-4 4 1 5.7-5-2.8-5 2.8 1-5.7-4-4 5.4-.7z"/></svg>Free mints<span class="k">3</span></button>
+      <button data-page="send"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>Send NFTs<span class="k">4</span></button>
+      <button data-page="gas"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5s6 6.6 6 11a6 6 0 0 1-12 0c0-4.4 6-11 6-11z"/></svg>Gas<span class="k">5</span></button>
+      <button data-page="rpc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14a8 8 0 0 1 16 0M12 14l4-4"/><circle cx="12" cy="14" r="1.5"/><path d="M3 20h18"/></svg>RPC speed<span class="k">6</span></button>
+      <button data-page="activity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Activity<span class="k">7</span></button>
+    </nav>
+    <div class="side-foot">
+      <div class="field" style="margin:0">
+        <label for="pw">Vault password</label>
+        <div class="pwrow">
+          <input id="pw" type="password" autocomplete="off" spellcheck="false" placeholder="saved file in use">
+          <button class="btn icon ghost" id="pwShow" title="Show / hide" aria-label="Show or hide password"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+        </div>
+        <span class="hint" id="pwHint">Only needed if vault/PASSWORD.txt isn't there. Kept in this tab's memory only.</span>
       </div>
-      <div>
-        <label for="chain">Chain</label>
-        <select id="chain">
-          <option value="robinhoodMainnet">Robinhood Chain — mainnet</option>
-          <option value="robinhoodTestnet">Robinhood Chain — testnet (worthless)</option>
-        </select>
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <span class="hint">Theme</span>
+        <div class="seg" id="theme" role="group" aria-label="Theme">
+          <button data-v="auto" aria-pressed="true">Auto</button><button data-v="light" aria-pressed="false">Light</button><button data-v="dark" aria-pressed="false">Dark</button>
+        </div>
       </div>
     </div>
-    <p class="note">
-      Left as <code>setup</code>, <code>chains</code> and <code>bench</code> alone —
-      those never touch a key. For testnet commands the CLI also wants the
-      <code>--i-know-this-is-testnet</code> flag, which the buttons below add for you.
-    </p>
-  </section>
+  </aside>
 
-  <div class="grid">
+  <div class="main">
+    <div class="livebar" role="status">LIVE MODE — actions sign and broadcast real transactions from your vault</div>
+    <header class="top">
+      <h1 id="title">Home</h1>
+      <span class="status" id="status" title="Readiness"><span class="dot spin" id="statusDot"></span><span id="statusText">Checking…</span></span>
+      <span class="spacer"></span>
+      <select id="chain" aria-label="Chain"><option value="robinhoodMainnet">Robinhood Chain</option></select>
+      <div class="seg" role="group" aria-label="Send mode">
+        <button id="modeDry" aria-pressed="true" title="Every action only shows its plan">Preview</button>
+        <button id="modeLive" class="livebtn" aria-pressed="false" title="Actions sign and broadcast">Live</button>
+      </div>
+    </header>
 
-    <section>
-      <h2>Get started</h2>
-      <div class="row">
-        <button data-cmd="setup">Set up</button>
-        <button data-cmd="check">Check it works</button>
-        <button data-cmd="chains">List chains</button>
+    <main class="content">
+      <div class="mobile-pw card" style="display:none;margin-bottom:14px">
+        <div class="field" style="margin:0"><label for="pwMobile">Vault password (only if not saved to vault/PASSWORD.txt)</label>
+        <input id="pwMobile" type="password" autocomplete="off" placeholder="saved file in use"></div>
       </div>
-      <p class="note">First time? Run <b>Set up</b>. It creates your vault and a wallet, then
-      tells you what to do next. It also prints your password file location — move that
-      somewhere safe.</p>
-    </section>
 
-    <section>
-      <h2>RPC speed</h2>
-      <div class="field">
-        <label for="rpc">Add your own RPC (any EVM provider)</label>
-        <input id="rpc" placeholder="https://…your-key…">
-      </div>
-      <div class="row">
-        <button id="addRpc">Add RPC</button>
-        <button data-cmd="bench">Speed test</button>
-        <button data-cmd="doctor">Doctor</button>
-      </div>
-      <p class="note">Public RPCs rate-limit and stop long runs. Add two or three and
-      <code>bench</code> shows which is fastest. Your key is saved to a gitignored file.</p>
-    </section>
-
-    <section>
-      <h2>Wallets &amp; backup</h2>
-      <div class="field">
-        <label for="wc">How many wallets to generate</label>
-        <input id="wc" type="number" min="1" max="100" value="10">
-      </div>
-      <div class="row">
-        <button id="newWallets">Generate</button>
-        <button data-cmd="wallet:list">List</button>
-        <button id="backup">Back up vault</button>
-      </div>
-      <div class="field" style="margin-top:10px">
-        <label for="bkpath">Backup destination</label>
-        <input id="bkpath" placeholder="D:/my-cold-backup.vault">
-      </div>
-      <p class="note"><b>Back up the vault.</b> Open the backup on another machine before you
-      trust it — a backup never opened is a hypothesis, not a backup.</p>
-    </section>
-
-    <section>
-      <h2>Find free mints</h2>
-      <div class="field">
-        <label for="coll">Collection address (blank = all watched)</label>
-        <input id="coll" placeholder="0x…">
-      </div>
-      <div class="row">
-        <button data-cmd="find">Find what's free</button>
-        <button id="auto" class="go">Mint it automatically</button>
-      </div>
-      <p class="note warn"><b>Mint it automatically</b> spends real gas and needs gas in your
-      wallets. Always run <b>Find</b> first and read the plan before using it.</p>
-    </section>
-
-    <section>
-      <h2>Send NFTs to holders</h2>
-      <div class="field">
-        <label for="rc">Recipient addresses (one per line)</label>
-        <textarea id="rc" rows="4" placeholder="0x1111…&#10;0x2222…"></textarea>
-      </div>
-      <div class="row">
-        <button id="spread">Send them</button>
-        <button data-cmd="scan">See what we hold</button>
-      </div>
-      <p class="note">Tokens are dealt round-robin to those addresses. Sends are recorded in a
-      ledger, so re-running never double-sends.</p>
-    </section>
-
-    <section>
-      <h2>Fund wallets</h2>
-      <div class="two">
-        <div>
-          <label for="each">ETH per wallet</label>
-          <input id="each" value="0.005">
+      <!-- ===================== HOME ===================== -->
+      <section class="page on" id="page-home" aria-labelledby="title">
+        <div id="onboard" hidden>
+          <div class="card hero">
+            <span class="badge info">First run</span>
+            <h2 style="margin-top:10px">Set up in one click</h2>
+            <p class="sub" style="max-width:62ch">holder-kit keeps your wallet keys encrypted on this computer and signs locally. Nothing is sent to anyone but the blockchain RPC you choose.</p>
+            <ol class="steps">
+              <li><span><b>Create your encrypted vault</b> with a strong random password saved to <code>vault/PASSWORD.txt</code>.</span></li>
+              <li><span><b>Make your wallets.</b> Choose how many below — you can add more later.</span></li>
+              <li><span><b>Write a backup</b> and check the chain is reachable.</span></li>
+            </ol>
+            <div class="row" style="margin-top:18px">
+              <div class="field" style="max-width:180px"><label for="setupN">Wallets to create</label><input id="setupN" type="number" min="1" max="100" value="1"></div>
+              <button class="btn primary" id="setupBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Set up now</button>
+            </div>
+            <p class="note">Afterwards, copy <code>vault/PASSWORD.txt</code> and a backup of the vault somewhere safe — anyone with both has your keys.</p>
+          </div>
         </div>
-        <div>
-          <label for="to">Recipients (blank = all in vault)</label>
-          <textarea id="to" rows="2" placeholder="0x1111…"></textarea>
-        </div>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button id="fund">Fund them</button>
-      </div>
-    </section>
 
+        <div id="dash">
+          <div class="tiles">
+            <div class="tile"><div class="eyebrow"><span class="dot" id="tVaultDot"></span>Vault</div><div class="v" id="tVault">—</div><div class="d" id="tVaultD">&nbsp;</div></div>
+            <div class="tile"><div class="eyebrow"><span class="dot" id="tWalletsDot"></span>Wallets</div><div class="v" id="tWallets">—</div><div class="d" id="tWalletsD">&nbsp;</div></div>
+            <div class="tile"><div class="eyebrow"><span class="dot" id="tRpcDot"></span>Chain</div><div class="v" id="tRpc">—</div><div class="d" id="tRpcD">&nbsp;</div></div>
+            <div class="tile"><div class="eyebrow"><span class="dot" id="tModeDot"></span>Mode</div><div class="v" id="tMode">Preview</div><div class="d" id="tModeD">Actions only show their plan</div></div>
+          </div>
+          <div id="dashMsg"></div>
+          <div class="grid">
+            <div class="card">
+              <h2>Find free mints</h2>
+              <p class="sub">Read price, supply and sale state straight from the chain.</p>
+              <button class="btn primary" data-go="mints" data-then="scan">Scan now</button>
+            </div>
+            <div class="card">
+              <h2>Your wallets</h2>
+              <p class="sub">Addresses and balances. Keys are never shown.</p>
+              <button class="btn" data-go="wallets">Open wallets</button>
+            </div>
+            <div class="card">
+              <h2>RPC health</h2>
+              <p class="sub">Speed-test your endpoints and prove failover works.</p>
+              <button class="btn" data-go="rpc" data-then="doctor">Run doctor</button>
+            </div>
+          </div>
+          <div class="actions"><button class="btn ghost sm" id="recheck">Re-check status</button><span class="hint">Shortcuts: <span class="kbd">1</span>–<span class="kbd">7</span> switch pages · <span class="kbd" id="modKey">Ctrl</span>+<span class="kbd">Enter</span> runs the main action</span></div>
+        </div>
+      </section>
+
+      <!-- ===================== WALLETS ===================== -->
+      <section class="page" id="page-wallets">
+        <p class="lede">Every wallet in your encrypted vault, with live balances. Private keys never leave the vault and are never displayed.</p>
+        <div class="card">
+          <div class="row" style="justify-content:space-between;align-items:center">
+            <div><h2 style="margin:0">Wallets</h2><span class="hint" id="wTotal"></span></div>
+            <div class="row" style="align-items:center">
+              <button class="btn sm" id="wRefresh" data-primary>Refresh</button>
+            </div>
+          </div>
+          <div class="tablewrap" style="margin-top:14px">
+            <table><thead><tr><th>#</th><th>Address</th><th class="num">Balance</th><th class="note-col">Note</th></tr></thead>
+            <tbody id="wBody"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody></table>
+          </div>
+        </div>
+        <div class="grid two" style="margin-top:14px">
+          <div class="card">
+            <h2>Generate wallets</h2>
+            <p class="sub">Fresh keys are created and encrypted locally.</p>
+            <div class="row"><div class="field"><label for="wN">How many</label><input id="wN" type="number" min="1" max="500" value="5"></div>
+            <button class="btn" id="wNew">Generate</button></div>
+          </div>
+          <div class="card">
+            <h2>Backup &amp; restore</h2>
+            <p class="sub">An encrypted copy, verified by re-opening it. Put it on another drive.</p>
+            <div class="field"><label for="bkPath">File path</label><input id="bkPath" placeholder="e.g. D:\backup\holder.vault or /Volumes/USB/holder.vault" spellcheck="false"></div>
+            <div class="actions" style="margin-top:0"><button class="btn" id="bkSave">Write backup</button><button class="btn ghost" id="bkRestore">Restore from file</button></div>
+            <p class="note">Restore merges wallets from a backup; it never deletes any.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== MINTS ===================== -->
+      <section class="page" id="page-mints">
+        <p class="lede">Verdicts come from chain state only: price, pause flag, sale state and supply left. Only zero-price mints are ever sent automatically.</p>
+        <div class="card">
+          <div class="row">
+            <div class="field" style="flex:3 1 280px"><label for="mColl">Collection address(es) <span class="hint">(several: separate with spaces · blank = every watched collection)</span></label><input id="mColl" placeholder="0x…" spellcheck="false"></div>
+            <div class="field" style="flex:0 1 110px"><label for="mQty">Per wallet</label><input id="mQty" type="number" min="1" max="20" value="1"></div>
+            <button class="btn primary" id="mScan" data-primary>Scan</button>
+            <button class="btn" id="mAuto">Mint every free one</button>
+          </div>
+        </div>
+        <div id="mResults"></div>
+        <div class="card" style="margin-top:14px">
+          <h2>Watch a collection</h2>
+          <p class="sub">Polls the chain and mints the moment a free window opens. In Preview mode it only reports.</p>
+          <div class="row">
+            <div class="field" style="flex:3 1 260px"><label for="wColl">Collection</label><input id="wColl" placeholder="0x…" spellcheck="false"></div>
+            <div class="field" style="flex:0 1 120px"><label for="wInt">Every (sec)</label><input id="wInt" type="number" min="5" value="20"></div>
+            <div class="field" style="flex:0 1 120px"><label for="wMax">Max checks</label><input id="wMax" type="number" min="1" value="90"></div>
+            <button class="btn" id="wStart">Start watching</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SEND ===================== -->
+      <section class="page" id="page-send">
+        <p class="lede">Ownership is verified on chain before anything is signed, and every confirmed transfer goes into a ledger — re-running never double-sends.</p>
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="spread">Spread to holders</button>
+          <button role="tab" aria-selected="false" data-tab="ship">Specific tokens</button>
+          <button role="tab" aria-selected="false" data-tab="hold">What we hold</button>
+        </div>
+        <div class="card">
+          <div class="field"><label for="sColl">Collection address</label><input id="sColl" placeholder="0x…" spellcheck="false"></div>
+          <div data-tabpane="spread">
+            <div class="field"><label for="sTo">Recipients — one address per line (commas and spaces work too)</label>
+            <textarea id="sTo" rows="6" placeholder="0x1111…&#10;0x2222…" spellcheck="false"></textarea>
+            <div class="counter" id="sToCount"></div></div>
+            <p class="note">Every NFT your vault wallets hold in this collection is dealt round-robin across these addresses.</p>
+            <div class="actions"><button class="btn primary" id="sSpread" data-primary>Preview spread</button></div>
+          </div>
+          <div data-tabpane="ship" hidden>
+            <div class="field"><label for="sPlan">Plan — one transfer per line: <code>from tokenId to</code></label>
+            <textarea id="sPlan" rows="7" placeholder="0xYourWallet  42  0xRecipient&#10;0xYourWallet  43  0xOtherRecipient" spellcheck="false"></textarea>
+            <div class="counter" id="sPlanCount"></div></div>
+            <div class="actions"><button class="btn primary" id="sShip" data-primary>Preview transfers</button></div>
+          </div>
+          <div data-tabpane="hold" hidden>
+            <p class="sub">NFTs held by every vault wallet across this chain's watched collections.</p>
+            <div class="actions" style="margin-top:0"><button class="btn primary" id="sScan" data-primary>Scan holdings</button></div>
+            <div id="sHold" style="margin-top:14px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== GAS ===================== -->
+      <section class="page" id="page-gas">
+        <p class="lede">Top every wallet up to a target balance from one source wallet. Wallets already at the target are skipped, so it's safe to run again.</p>
+        <div class="card">
+          <div class="row">
+            <div class="field"><label for="gEach">Target per wallet</label><input id="gEach" value="0.005" inputmode="decimal"></div>
+            <div class="field"><label for="gFrom">Pay from</label><select id="gFrom"><option value="0">Wallet #0</option></select></div>
+          </div>
+          <div class="field" style="margin-top:12px"><label for="gTo">Recipients <span class="hint">(blank = every other wallet in your vault)</span></label>
+          <textarea id="gTo" rows="4" placeholder="0x1111…" spellcheck="false"></textarea><div class="counter" id="gToCount"></div></div>
+          <label class="check"><input type="checkbox" id="gExact"> Send the full amount even if a wallet already has some</label>
+          <p class="note warn">Limits: 0.05 per transfer and 0.5 per run. Larger runs must be split, or done from the terminal.</p>
+          <div class="actions"><button class="btn primary" id="gFund" data-primary>Preview top-up</button></div>
+        </div>
+      </section>
+
+      <!-- ===================== RPC ===================== -->
+      <section class="page" id="page-rpc">
+        <p class="lede">Public RPCs rate-limit and stop long runs. Add two or more providers; the fastest healthy one is used first and the rest take over automatically.</p>
+        <div class="grid two">
+          <div class="card">
+            <h2>Add an RPC</h2>
+            <p class="sub">Alchemy, QuickNode, Infura, your own node… Saved to a gitignored file on this computer.</p>
+            <div class="field"><label for="rUrl">Endpoint URL</label><input id="rUrl" type="password" placeholder="https://…" autocomplete="off" spellcheck="false"></div>
+            <div class="field"><label for="rName">Name</label><input id="rName" placeholder="e.g. alchemy" spellcheck="false"></div>
+            <div class="actions" style="margin-top:0"><button class="btn" id="rAdd">Add to this chain</button></div>
+          </div>
+          <div class="card">
+            <h2>Test</h2>
+            <p class="sub"><b>Speed test</b> ranks endpoints by real latency. <b>Doctor</b> also breaks the first one on purpose to prove failover.</p>
+            <div class="actions" style="margin-top:0"><button class="btn primary" id="rBench" data-primary>Speed test</button><button class="btn" id="rDoctor">Doctor</button></div>
+          </div>
+        </div>
+        <div id="rOut" style="margin-top:14px"></div>
+      </section>
+
+      <!-- ===================== ACTIVITY ===================== -->
+      <section class="page" id="page-activity">
+        <p class="lede">Everything run from this window, newest first. Click one to see its full output. Nothing here is saved after you close the tab.</p>
+        <div class="act" id="actList"><div class="empty card"><b>Nothing yet</b>Run something and it shows up here.</div></div>
+      </section>
+    </main>
   </div>
+</div>
 
-  <section style="margin-top:14px">
-    <h2>Output <span class="busy" id="busy"></span></h2>
-    <pre id="out"></pre>
-  </section>
-</main>
+<!-- console -->
+<div class="console collapsed" id="console" aria-label="Output">
+  <div class="bar" id="conBar">
+    <span class="dot" id="conDot"></span>
+    <span class="title">Output</span>
+    <span class="cmd" id="conCmd">nothing run yet</span>
+    <button class="btn sm danger" id="conCancel" hidden>Stop</button>
+    <button class="btn sm ghost" id="conCopy" title="Copy output">Copy</button>
+    <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+  </div>
+  <pre id="conOut" aria-live="polite"></pre>
+</div>
+
+<!-- modal -->
+<div class="scrim" id="scrim" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+  <div class="modal">
+    <h3 id="mTitle">Send for real?</h3>
+    <p id="mBody"></p>
+    <pre id="mCmd"></pre>
+    <div class="actions"><button class="btn ghost" id="mNo">Cancel</button><button class="btn danger" id="mYes">Sign &amp; send</button></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
 
 <script>
+'use strict';
+// ------------------------------------------------------------------ helpers
 const $ = (id) => document.getElementById(id);
-const out = $('out'), busy = $('busy');
+const TOKEN = document.querySelector('meta[name="hk-token"]')?.content || '';
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+const ADDR = /^0x[0-9a-fA-F]{40}$/;
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('hk.' + k); return v == null ? d : v; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem('hk.' + k, v); } catch { /* private mode */ } },
+};
 
-// Buttons declare their command; everything else is assembled below.
-document.querySelectorAll('[data-cmd]').forEach((b) => {
-  b.addEventListener('click', () => {
-    const raw = b.dataset.cmd;
-    const argv = raw.includes(':') ? raw.split(':') : [raw];
-    run(argv);
-  });
-});
-
-const lines = (s) => s.split(/[\r\n]+/).map((x) => x.trim()).filter(Boolean);
-const collection = () => $('coll').value.trim();
-const isTestnet = () => $('chain').value === 'robinhoodTestnet';
-const testnetFlag = () => (isTestnet() ? ['--i-know-this-is-testnet'] : []);
-
-$('addRpc').addEventListener('click', () => {
-  const url = $('rpc').value.trim();
-  if (!url) return run(['bench']);
-  run(['rpc', 'add', url, '--chain', $('chain').value]);
-});
-
-$('newWallets').addEventListener('click', () => {
-  const n = Math.max(1, Math.min(100, parseInt($('wc').value, 10) || 1));
-  run(['wallet', 'new', String(n)]);
-});
-
-$('backup').addEventListener('click', () => {
-  const p = $('bkpath').value.trim();
-  run(p ? ['wallet', 'backup', p] : ['wallet', 'backup']);
-});
-
-$('auto').addEventListener('click', () => {
-  const argv = ['auto', '--chain', $('chain').value, ...testnetFlag()];
-  if (collection()) argv.push('--collection', collection());
-  run(argv);
-});
-
-$('spread').addEventListener('click', () => {
-  const argv = ['spread', '--chain', $('chain').value, ...testnetFlag()];
-  if (collection()) argv.push('--collection', collection());
-  const to = lines($('rc').value);
-  if (!to.length) {
-    out.textContent = 'Add at least one recipient address first.';
-    return;
+/** Build DOM safely — chain data (token names!) is never parsed as HTML. */
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'text') el.textContent = v;
+    else el.setAttribute(k, v === true ? '' : v);
   }
-  argv.push('--to', to.join(','));
-  run(argv);
-});
-
-$('fund').addEventListener('click', () => {
-  const argv = ['fund', '--each', $('each').value.trim() || '0.005',
-                '--chain', $('chain').value, ...testnetFlag()];
-  const to = lines($('to').value);
-  if (to.length) argv.push('--to', to.join(','));
-  run(argv);
-});
-
-let running = false;
-
-async function run(argv) {
-  if (running) return;
-  running = true;
-  document.querySelectorAll('button').forEach((b) => (b.disabled = true));
-  busy.textContent = 'running…';
-  out.textContent = `$ ${argv.join(' ')}`;
-
-  try {
-    const r = await fetch('/run', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ argv, password: $('pw').value }),
-    });
-    const j = await r.json();
-    if (j.error) {
-      out.textContent = j.error;
-    } else {
-      out.textContent = j.output || '(no output)';
-      out.style.color = j.code === 0 ? '' : 'var(--warn)';
-    }
-  } catch (e) {
-    out.textContent = `request failed: ${e.message}`;
-  } finally {
-    running = false;
-    document.querySelectorAll('button').forEach((b) => (b.disabled = false));
-    busy.textContent = '';
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+const short = (a) => (a && a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || '');
+const COPY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+function copyBtn(text, label = 'Copy') {
+  const b = h('button', { class: 'copy', title: label, 'aria-label': label, type: 'button' });
+  b.innerHTML = COPY_SVG; // static SVG, no data
+  b.addEventListener('click', (e) => { e.stopPropagation(); copyText(text); });
+  return b;
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('Copied', 'ok'); }
+  catch {
+    const t = h('textarea', {}, text); document.body.append(t); t.select();
+    try { document.execCommand('copy'); toast('Copied', 'ok'); } catch { toast('Copy failed', 'bad'); }
+    t.remove();
   }
 }
+function addrCell(a) { return h('span', { class: 'addr', title: a }, h('span', {}, short(a)), copyBtn(a, 'Copy address')); }
+function toast(msg, kind = 'ok', ms = 3800) {
+  const t = h('div', { class: 'toast', role: 'status' }, h('span', { class: `dot ${kind}` }), h('div', {}, msg));
+  $('toasts').append(t);
+  setTimeout(() => t.remove(), ms);
+}
+function parseAddrs(text) {
+  const parts = String(text || '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+  const valid = []; const bad = []; const seen = new Set(); let dupes = 0;
+  for (const p of parts) {
+    if (!ADDR.test(p)) { bad.push(p); continue; }
+    const k = p.toLowerCase();
+    if (seen.has(k)) { dupes++; continue; }
+    seen.add(k); valid.push(p);
+  }
+  return { valid, bad, dupes };
+}
+function counter(el, { valid, bad, dupes }, noun = 'address') {
+  el.replaceChildren(
+    h('span', { class: valid.length ? 'good' : '' }, `${valid.length} valid ${noun}${valid.length === 1 ? '' : 'es'}`),
+    dupes ? h('span', {}, `${dupes} duplicate${dupes === 1 ? '' : 's'} ignored`) : null,
+    bad.length ? h('span', { class: 'bad' }, `${bad.length} not an address: ${bad.slice(0, 2).map(short).join(', ')}${bad.length > 2 ? '…' : ''}`) : null,
+  );
+}
+
+// ------------------------------------------------------------------ state
+const S = {
+  chains: [], live: false, writing: false, current: null, runs: [], wallets: [], status: null,
+};
+const chain = () => $('chain').value;
+const chainInfo = () => S.chains.find((c) => c.key === chain());
+const testnetFlag = () => (chainInfo()?.testnet ? ['--i-know-this-is-testnet'] : []);
+const withChain = (argv) => [...argv, '--chain', chain(), ...testnetFlag()];
+const password = () => S.pw || '';
+
+// ------------------------------------------------------------------ runner
+/**
+ * Run one CLI command through the local server, streaming output into the
+ * console. Returns { code, stdout, stderr, ms, canceled }.
+ *   quiet: don't pop the console open (background refreshes)
+ */
+async function run(argv, { quiet = false, label } = {}) {
+  const rec = { argv, label: label || argv.join(' '), started: new Date(), out: '', stdout: '', code: null, ms: 0, running: true };
+  S.runs.unshift(rec);
+  if (S.runs.length > 200) S.runs.pop();
+  const mutating = !['check', 'doctor', 'chains', 'bench', 'find', 'scan', 'mint-report'].includes(argv[0]) && !(argv[0] === 'wallet' && argv[1] === 'list');
+  if (mutating) setWriting(true);
+  if (!quiet) showConsole(rec, true);
+  renderActivity();
+
+  try {
+    const res = await fetch('/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-holder-kit-token': TOKEN },
+      body: JSON.stringify({ argv, password: password(), stream: true }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      rec.out = j.error || `HTTP ${res.status}`;
+      rec.code = res.status === 409 ? 409 : 1;
+      if (!quiet) toast(rec.out, 'bad', 6000);
+      return finish();
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let nl;
+      while ((nl = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, nl); buf = buf.slice(nl + 1);
+        if (!line.trim()) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (ev.t === 'start') { rec.id = ev.id; if (S.current === rec) $('conCancel').hidden = false; }
+        else if (ev.t === 'stdout' || ev.t === 'stderr') {
+          rec.out += ev.d;
+          if (ev.t === 'stdout') rec.stdout += ev.d;
+          if (S.current === rec) appendConsole(ev.d, ev.t === 'stderr');
+        } else if (ev.t === 'end') {
+          rec.code = ev.code; rec.ms = ev.ms; rec.canceled = ev.canceled; rec.timedOut = ev.timedOut;
+          if (ev.error) rec.out += `\n${ev.error}`;
+        }
+      }
+    }
+    if (rec.code == null) rec.code = 1;
+  } catch (e) {
+    // fetch() only throws like this when the local server is gone (the
+    // terminal / launcher window was closed).
+    rec.out += `\nCan't reach holder-kit on this computer (${e.message}). Start it again with the launcher or \`npm run ui\`, then reload this page.`;
+    rec.code = 1;
+    if (!quiet) toast("holder-kit isn't running — start it again, then reload", 'bad', 8000);
+  }
+  return finish();
+
+  function finish() {
+    rec.running = false;
+    if (mutating) setWriting(false);
+    if (S.current === rec) showConsole(rec, false);
+    renderActivity();
+    return rec;
+  }
+}
+
+/** Run a --json command and parse its single JSON document. */
+async function runJson(argv, opts = {}) {
+  const rec = await run([...argv, '--json'], { quiet: true, ...opts });
+  let data = null;
+  try { data = JSON.parse(rec.stdout); } catch { /* not JSON */ }
+  if (!data && rec.code !== 409) data = { ok: false, error: (rec.out || 'no output').trim().split('\n').slice(-3).join(' ') };
+  return { rec, data: data || { ok: false, error: rec.out } };
+}
+
+function setWriting(on) {
+  S.writing = on;
+  document.querySelectorAll('[data-writes]').forEach((b) => { b.disabled = on; });
+}
+
+// ------------------------------------------------------------------ console
+function showConsole(rec, open) {
+  S.current = rec;
+  const c = $('console');
+  if (open) c.classList.remove('collapsed');
+  $('conCmd').textContent = `$ holder-kit ${rec.argv.map((a) => (/\s/.test(a) ? JSON.stringify(a) : a)).join(' ')}`;
+  $('conCancel').hidden = !rec.running || !rec.id;
+  const dot = $('conDot');
+  dot.className = 'dot ' + (rec.running ? 'spin' : rec.code === 0 ? 'ok' : rec.canceled ? 'warn' : 'bad');
+  const pre = $('conOut');
+  pre.replaceChildren();
+  if (rec.out) appendConsole(rec.out);
+  if (!rec.running) {
+    const tail = rec.canceled ? 'stopped' : rec.timedOut ? 'timed out' : `exit ${rec.code}`;
+    pre.append(h('span', { class: rec.code === 0 ? 'ok' : 'fail' }, `\n— ${tail} · ${(rec.ms / 1000).toFixed(1)}s`));
+  } else if (!rec.out) {
+    pre.append(h('span', { class: 'e' }, 'running…'));
+  }
+  pre.scrollTop = pre.scrollHeight;
+}
+function appendConsole(text, isErr) {
+  const pre = $('conOut');
+  const last = pre.lastChild;
+  if (last && last.nodeType === 1 && last.textContent === 'running…') last.remove();
+  const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+  pre.append(isErr ? h('span', { class: 'e' }, text) : document.createTextNode(text));
+  if (atBottom) pre.scrollTop = pre.scrollHeight;
+}
+// The console is fixed to the bottom; reserve exactly its visible height so it
+// never covers the buttons at the end of a page.
+function syncConsoleSpace() {
+  const c = $('console');
+  const visible = c.classList.contains('collapsed') ? 42 : c.getBoundingClientRect().height;
+  document.documentElement.style.setProperty('--con-h', `${Math.ceil(visible)}px`);
+}
+new ResizeObserver(syncConsoleSpace).observe($('console'));
+$('console').addEventListener('transitionend', syncConsoleSpace);
+new MutationObserver(syncConsoleSpace).observe($('console'), { attributes: true, attributeFilter: ['class'] });
+$('conBar').addEventListener('click', (e) => { if (!e.target.closest('button')) $('console').classList.toggle('collapsed'); });
+$('conCopy').addEventListener('click', () => copyText(S.current?.out || ''));
+$('conCancel').addEventListener('click', async () => {
+  const rec = S.current; if (!rec?.id) return;
+  await fetch('/cancel', { method: 'POST', headers: { 'content-type': 'application/json', 'x-holder-kit-token': TOKEN }, body: JSON.stringify({ id: rec.id }) });
+  toast('Stopping…', 'warn');
+});
+
+// ------------------------------------------------------------------ activity
+function renderActivity() {
+  const list = $('actList');
+  if (!S.runs.length) return;
+  list.replaceChildren(...S.runs.map((r) => h('button', { class: 'act-item', type: 'button', onclick: () => showConsole(r, true) },
+    h('span', { class: 'dot ' + (r.running ? 'spin' : r.code === 0 ? 'ok' : r.canceled ? 'warn' : 'bad') }),
+    h('code', {}, r.label),
+    h('span', { class: 'badge ' + (r.running ? 'info' : r.code === 0 ? 'ok' : 'err') }, r.running ? 'running' : r.canceled ? 'stopped' : r.code === 0 ? 'ok' : `exit ${r.code}`),
+    h('span', { class: 't' }, r.started.toLocaleTimeString()),
+  )));
+}
+
+// ------------------------------------------------------------------ modal
+function confirmLive(title, body, argv) {
+  return new Promise((resolve) => {
+    $('mTitle').textContent = title;
+    $('mBody').textContent = body;
+    $('mCmd').textContent = 'holder-kit ' + argv.join(' ');
+    const scrim = $('scrim');
+    scrim.classList.add('on');
+    $('mNo').focus();
+    const done = (v) => { scrim.classList.remove('on'); cleanup(); resolve(v); };
+    const yes = () => done(true); const no = () => done(false);
+    const key = (e) => { if (e.key === 'Escape') no(); };
+    const click = (e) => { if (e.target === scrim) no(); };
+    $('mYes').addEventListener('click', yes); $('mNo').addEventListener('click', no);
+    document.addEventListener('keydown', key); scrim.addEventListener('click', click);
+    function cleanup() {
+      $('mYes').removeEventListener('click', yes); $('mNo').removeEventListener('click', no);
+      document.removeEventListener('keydown', key); scrim.removeEventListener('click', click);
+    }
+  });
+}
+
+/**
+ * The one gate for every value-moving action: Preview mode adds nothing (a dry
+ * run); Live mode asks first, then adds --execute.
+ */
+async function act(argv, what) {
+  const full = withChain(argv);
+  if (!S.live) return run(full);
+  const live = [...full, '--execute'];
+  const ok = await confirmLive('Sign and send for real?', `${what} on ${chainInfo()?.name || chain()}. This signs transactions with your vault keys and broadcasts them. It cannot be undone.`, live);
+  if (!ok) { toast('Cancelled — nothing was sent', 'warn'); return null; }
+  return run(live);
+}
+
+function summarize(rec, fallback) {
+  if (!rec) return;
+  const m = rec.out.match(/done: [^\n]+|auto-mint complete: [^\n]+|nothing was sent[^\n]*|DRY RUN — nothing was sent|every recipient already holds the target[^\n]*/i);
+  const msg = m ? m[0] : fallback;
+  toast(rec.code === 0 ? (msg || 'Done') : `Failed: ${rec.out.trim().split('\n').filter(Boolean).pop() || 'see output'}`, rec.code === 0 ? 'ok' : 'bad', 6000);
+}
+
+// ------------------------------------------------------------------ navigation
+const PAGES = ['home', 'wallets', 'mints', 'send', 'gas', 'rpc', 'activity'];
+const TITLES = { home: 'Home', wallets: 'Wallets', mints: 'Free mints', send: 'Send NFTs', gas: 'Gas top-up', rpc: 'RPC speed', activity: 'Activity' };
+function go(page) {
+  if (!PAGES.includes(page)) page = 'home';
+  document.querySelectorAll('.page').forEach((p) => p.classList.toggle('on', p.id === `page-${page}`));
+  document.querySelectorAll('#nav button').forEach((b) => { if (b.dataset.page === page) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  $('title').textContent = TITLES[page];
+  document.title = `${TITLES[page]} · holder-kit`;
+  if (location.hash !== '#' + page) history.replaceState(null, '', '#' + page);
+  if (page === 'wallets' && !S.walletsLoaded) loadWallets();
+  if (page === 'gas' && !S.walletsLoaded) loadWallets();
+}
+$('nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-page]'); if (b) go(b.dataset.page); });
+document.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => {
+  go(b.dataset.go);
+  if (b.dataset.then === 'scan') $('mScan').click();
+  if (b.dataset.then === 'doctor') $('rDoctor').click();
+}));
+
+document.addEventListener('keydown', (e) => {
+  if ($('scrim').classList.contains('on')) return;
+  const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '');
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    const page = document.querySelector('.page.on');
+    const btn = [...page.querySelectorAll('[data-primary]')].find((b) => b.offsetParent !== null && !b.disabled);
+    if (btn) { e.preventDefault(); btn.click(); }
+    return;
+  }
+  if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+  const n = Number(e.key);
+  if (n >= 1 && n <= PAGES.length) go(PAGES[n - 1]);
+});
+$('modKey').textContent = IS_MAC ? '⌘' : 'Ctrl';
+
+// ------------------------------------------------------------------ mode, theme, chain, password
+function setLive(on) {
+  S.live = on;
+  document.body.classList.toggle('live', on);
+  $('modeDry').setAttribute('aria-pressed', String(!on));
+  $('modeLive').setAttribute('aria-pressed', String(on));
+  $('tMode').textContent = on ? 'Live' : 'Preview';
+  $('tModeD').textContent = on ? 'Actions sign and broadcast' : 'Actions only show their plan';
+  $('tModeDot').className = 'dot ' + (on ? 'bad' : 'ok');
+  for (const [id, dry, live] of [['sSpread', 'Preview spread', 'Send NFTs'], ['sShip', 'Preview transfers', 'Send transfers'], ['gFund', 'Preview top-up', 'Send top-up'], ['mAuto', 'Preview: mint every free one', 'Mint every free one'], ['wStart', 'Start watching (report only)', 'Start watching & mint']]) {
+    const b = $(id); b.textContent = on ? live : dry; b.classList.toggle('danger', on); b.classList.toggle('primary', !on && b.hasAttribute('data-primary'));
+  }
+  document.querySelectorAll('.mint [data-mintbtn]').forEach((b) => {
+    b.textContent = on ? 'Mint now' : 'Preview mint'; b.classList.toggle('danger', on); b.classList.toggle('primary', !on);
+  });
+}
+$('modeDry').addEventListener('click', () => setLive(false));
+$('modeLive').addEventListener('click', () => { setLive(true); toast('Live mode: actions will ask, then sign and send', 'warn', 5000); });
+
+function applyTheme(v) {
+  if (v === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', v);
+  document.querySelectorAll('#theme button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === v)));
+  store.set('theme', v);
+}
+$('theme').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) applyTheme(b.dataset.v); });
+applyTheme(store.get('theme', 'auto'));
+
+$('pwShow').addEventListener('click', () => { const i = $('pw'); i.type = i.type === 'password' ? 'text' : 'password'; });
+// One source of truth for the password, whichever field (sidebar or phone
+// layout) the holder typed into. Never stored anywhere but this variable.
+$('pw').addEventListener('input', () => { S.pw = $('pw').value; $('pwMobile').value = S.pw; });
+$('pwMobile').addEventListener('input', () => { S.pw = $('pwMobile').value; $('pw').value = S.pw; });
+let pwTimer;
+$('pw').addEventListener('change', () => { clearTimeout(pwTimer); pwTimer = setTimeout(refreshStatus, 200); });
+$('pwMobile').addEventListener('change', () => { clearTimeout(pwTimer); pwTimer = setTimeout(refreshStatus, 200); });
+
+$('chain').addEventListener('change', () => {
+  store.set('chain', chain());
+  S.walletsLoaded = false;
+  $('mResults').replaceChildren();
+  $('rOut').replaceChildren();
+  $('sHold').replaceChildren();
+  refreshStatus();
+  if (document.querySelector('#page-wallets.on, #page-gas.on')) loadWallets();
+});
+
+async function loadChains() {
+  const { data } = await runJson(['chains'], { label: 'chains' });
+  if (!data?.chains?.length) return;
+  S.chains = data.chains;
+  const sel = $('chain');
+  sel.replaceChildren(...S.chains.map((c) => h('option', { value: c.key }, `${c.name}${c.testnet ? ' · testnet' : ''}`)));
+  const saved = store.get('chain', 'robinhoodMainnet');
+  sel.value = S.chains.some((c) => c.key === saved) ? saved : S.chains[0].key;
+}
+
+// ------------------------------------------------------------------ status / home
+function setDot(id, kind) { $(id).className = 'dot ' + (kind || ''); }
+let statusSeq = 0;
+async function refreshStatus() {
+  const seq = ++statusSeq;
+  setDot('statusDot', 'spin'); $('statusText').textContent = 'Checking…';
+  const { data } = await runJson(withChain(['check']), { label: 'check' });
+  // Several checks can overlap (chain switch, password edit, button). Only the
+  // newest one may paint, or a stale answer would overwrite a fresh one.
+  if (seq !== statusSeq) return;
+  S.status = data;
+  const checks = Object.fromEntries((data.checks || []).map((c) => [c.name, c]));
+  const vaultExists = !!data.vaultExists;
+  $('onboard').hidden = vaultExists || data.vaultExists === undefined;
+  $('dash').hidden = !vaultExists && data.vaultExists !== undefined;
+
+  $('tVault').textContent = vaultExists ? (checks.wallets?.ok ? 'Unlocked' : 'Locked') : 'Not set up';
+  $('tVaultD').textContent = vaultExists ? (data.passwordSource ? `via ${data.passwordSource}` : 'enter your password in the sidebar') : 'run setup';
+  setDot('tVaultDot', vaultExists && checks.wallets?.ok ? 'ok' : vaultExists ? 'warn' : 'bad');
+  const wm = /(\d+) in vault/.exec(checks.wallets?.detail || '');
+  $('tWallets').textContent = wm ? wm[1] : '—';
+  $('tWalletsD').textContent = checks.wallets?.ok ? 'keys encrypted on this computer' : (checks.wallets?.detail || '');
+  setDot('tWalletsDot', checks.wallets?.ok ? 'ok' : 'warn');
+  const rpc = checks.rpc;
+  $('tRpc').textContent = rpc?.ok ? (/block (\d+)/.exec(rpc.detail)?.[1] ? `#${Number(/block (\d+)/.exec(rpc.detail)[1]).toLocaleString()}` : 'Online') : 'Offline';
+  $('tRpcD').textContent = rpc?.detail || data.error || '';
+  setDot('tRpcDot', rpc?.ok ? 'ok' : 'bad');
+
+  document.body.classList.toggle('needs-pw', vaultExists && data.passwordSource !== 'password file');
+  $('pwHint').textContent = data.passwordSource === 'password file'
+    ? 'Using vault/PASSWORD.txt — leave this blank.'
+    : "Only needed if vault/PASSWORD.txt isn't there. Kept in this tab's memory only.";
+
+  const msg = $('dashMsg'); msg.replaceChildren();
+  if (vaultExists && checks.wallets && !checks.wallets.ok) msg.append(h('div', { class: 'callout warn' }, `Vault is locked: ${checks.wallets.detail}. Enter the vault password in the sidebar.`));
+  if (rpc && !rpc.ok) msg.append(h('div', { class: 'callout err' }, `Can't reach ${chainInfo()?.name || chain()}: ${rpc.detail}. Try RPC speed → Doctor, or add your own RPC.`));
+  if (data.error && !data.checks) msg.append(h('div', { class: 'callout err' }, data.error));
+
+  const ready = !!data.ok;
+  setDot('statusDot', ready ? 'ok' : vaultExists ? 'warn' : 'bad');
+  $('statusText').textContent = ready ? 'Ready' : vaultExists ? 'Needs attention' : 'Not set up';
+}
+$('recheck').addEventListener('click', refreshStatus);
+
+$('setupBtn').addEventListener('click', async () => {
+  const n = Math.max(1, Math.min(100, parseInt($('setupN').value, 10) || 1));
+  const btn = $('setupBtn'); btn.disabled = true;
+  const rec = await run(withChain(['setup', '--wallets', String(n)]));
+  btn.disabled = false;
+  if (rec.code === 0) {
+    const pf = /saved here:\s*\n\s*(.+)/.exec(rec.out)?.[1]?.trim();
+    toast(pf ? `Vault ready. Password saved to ${pf}` : 'Vault ready', 'ok', 8000);
+    S.walletsLoaded = false;
+    await refreshStatus();
+  } else toast('Setup failed — see output', 'bad', 6000);
+});
+
+// ------------------------------------------------------------------ wallets
+let walletSeq = 0;
+async function loadWallets() {
+  const seq = ++walletSeq;
+  const body = $('wBody');
+  body.replaceChildren(h('tr', {}, h('td', { colspan: 4, class: 'empty' }, h('span', { class: 'spinner' }), '  Loading balances…')));
+  const { data } = await runJson(withChain(['wallet', 'list']), { label: 'wallet list' });
+  if (seq !== walletSeq) return; // a newer load (e.g. after a chain switch) owns the table
+  if (!data.ok) {
+    body.replaceChildren(h('tr', {}, h('td', { colspan: 4, class: 'empty' }, h('b', {}, 'Could not open the vault'), data.error || '')));
+    $('wTotal').textContent = '';
+    return;
+  }
+  S.wallets = data.wallets || [];
+  S.walletsLoaded = true;
+  const sym = data.symbol || 'ETH';
+  if (!S.wallets.length) {
+    body.replaceChildren(h('tr', {}, h('td', { colspan: 4, class: 'empty' }, h('b', {}, 'No wallets yet'), 'Generate some below.')));
+  } else {
+    body.replaceChildren(...S.wallets.map((w) => h('tr', {},
+      h('td', { class: 'num', style: 'text-align:left;color:var(--faint)' }, String(w.index)),
+      h('td', {}, h('span', { class: 'addr', title: w.address }, h('span', { class: 'full' }, w.address), h('span', { class: 'sh' }, short(w.address)), copyBtn(w.address, 'Copy address'))),
+      h('td', { class: 'num' }, w.balance == null ? h('span', { class: 'badge mut' }, 'unknown') : `${trimNum(w.balance)} ${sym}`),
+      h('td', { class: 'note-col', style: 'color:var(--mut)' }, w.note || ''),
+    )));
+  }
+  let total = 0n; let known = true;
+  for (const w of S.wallets) { if (w.balanceWei == null) known = false; else total += BigInt(w.balanceWei); }
+  $('wTotal').textContent = `${S.wallets.length} wallet${S.wallets.length === 1 ? '' : 's'}` + (known ? ` · ${trimNum(fmtWei(total))} ${sym} total` : ' · balances unavailable (RPC offline)');
+  // gas page: source wallet choices
+  const gf = $('gFrom'); const prev = gf.value;
+  gf.replaceChildren(...(S.wallets.length ? S.wallets : [{ index: 0, address: '' }]).map((w) => h('option', { value: String(w.index) }, `#${w.index}  ${short(w.address)}${w.balance != null ? `  ·  ${trimNum(w.balance)} ${sym}` : ''}`)));
+  if ([...gf.options].some((o) => o.value === prev)) gf.value = prev;
+}
+function fmtWei(w) { const s = BigInt(w).toString().padStart(19, '0'); const f = s.slice(-18).replace(/0+$/, ''); return s.slice(0, -18) + (f ? '.' + f : ''); }
+/** Human amount for a wei value: tiny prices must not round to "0". */
+function fmtAmount(wei, sym) {
+  const w = BigInt(wei);
+  if (w === 0n) return 'Free';
+  if (w < 10n ** 12n) return w < 10n ** 6n ? `${w} wei` : `${trimNum((Number(w) / 1e9).toString())} gwei`;
+  return `${trimNum(fmtWei(w))} ${sym}`;
+}
+function trimNum(s) { const [a, b = ''] = String(s).split('.'); return b ? `${a}.${b.slice(0, 6).replace(/0+$/, '') || '0'}`.replace(/\.0$/, '') : a; }
+$('wRefresh').addEventListener('click', loadWallets);
+$('wNew').setAttribute('data-writes', '');
+$('wNew').addEventListener('click', async () => {
+  const n = Math.max(1, Math.min(500, parseInt($('wN').value, 10) || 1));
+  const rec = await run(['wallet', 'new', String(n)]);
+  if (rec.code === 0) { toast(`${n} wallet${n === 1 ? '' : 's'} created and encrypted`, 'ok'); await loadWallets(); refreshStatus(); }
+  else toast('Could not create wallets — see output', 'bad');
+});
+$('bkSave').setAttribute('data-writes', '');
+$('bkSave').addEventListener('click', async () => {
+  const p = $('bkPath').value.trim();
+  if (!p) { $('bkPath').classList.add('bad'); $('bkPath').focus(); return toast('Enter where to write the backup', 'warn'); }
+  $('bkPath').classList.remove('bad');
+  const rec = await run(['wallet', 'backup', p]);
+  toast(rec.code === 0 ? 'Encrypted backup written — open it on another machine once to be sure' : 'Backup failed — see output', rec.code === 0 ? 'ok' : 'bad', 6000);
+});
+$('bkRestore').setAttribute('data-writes', '');
+$('bkRestore').addEventListener('click', async () => {
+  const p = $('bkPath').value.trim();
+  if (!p) { $('bkPath').classList.add('bad'); $('bkPath').focus(); return toast('Enter the backup file to restore from', 'warn'); }
+  const rec = await run(['wallet', 'restore', p]);
+  if (rec.code === 0) { toast(/restored [^\n]+/.exec(rec.out)?.[0] || 'Restored', 'ok'); loadWallets(); refreshStatus(); }
+  else toast('Restore failed — see output', 'bad');
+});
+
+// ------------------------------------------------------------------ mints
+const VERDICT = {
+  'free-live': ['FREE · LIVE', 'ok'], 'paid-live': ['PAID · LIVE', 'warn'], 'sold-out': ['SOLD OUT', 'err'],
+  closed: ['CLOSED', 'mut'], 'not-a-contract': ['NOT A CONTRACT', 'err'], error: ['ERROR', 'err'],
+};
+function validColl(id, required) {
+  const el = $(id); const v = el.value.trim();
+  const ok = required ? ADDR.test(v) : !v || ADDR.test(v);
+  el.classList.toggle('bad', !ok);
+  if (!ok) { el.focus(); toast(required ? 'Enter a collection address (0x + 40 hex characters)' : 'That is not a valid address', 'warn'); }
+  return ok ? v : null;
+}
+/** The mint page accepts one or several addresses (space/comma separated). */
+function mintColls() {
+  const el = $('mColl');
+  const { valid, bad } = parseAddrs(el.value);
+  el.classList.toggle('bad', bad.length > 0);
+  if (bad.length) { el.focus(); toast(`Not an address: ${short(bad[0])}`, 'warn'); return null; }
+  return valid;
+}
+$('mScan').addEventListener('click', async () => {
+  const colls = mintColls(); if (colls === null) return;
+  const coll = colls.length === 1 ? colls[0] : '';
+  const box = $('mResults');
+  box.replaceChildren(h('div', { class: 'card', style: 'margin-top:14px' }, h('span', { class: 'spinner' }), '  Reading chain state…'));
+  const ch = chain();
+  const { data } = await runJson(withChain(['find', ...colls.flatMap((c) => ['--address', c])]), { label: 'find' + (colls.length ? ' ' + colls.map(short).join(' ') : '') });
+  if (ch !== chain()) return; // chain switched while scanning; this answer is for the old one
+  if (!data.ok) return box.replaceChildren(h('div', { class: 'callout err', style: 'margin-top:14px' }, data.error || 'Scan failed'));
+  const results = data.results || [];
+  if (!results.length) return box.replaceChildren(h('div', { class: 'card empty', style: 'margin-top:14px' }, h('b', {}, 'No collections to scan'), 'Paste a collection address above — this chain has no watched collections configured.'));
+  const free = results.filter((r) => r.verdict === 'free-live').length;
+  box.replaceChildren(
+    h('div', { class: 'callout ' + (free ? 'ok' : ''), style: 'margin-top:14px' }, free ? `${free} free mint${free === 1 ? '' : 's'} open right now.` : 'Nothing is free and open right now. Nothing was sent.'),
+    h('div', { class: 'mints' }, ...results.map(mintCard)),
+  );
+});
+function mintCard(r) {
+  const [label, kind] = VERDICT[r.verdict] || [r.verdict, 'mut'];
+  const kv = [];
+  const add = (k, v) => { if (v != null && v !== '') kv.push(h('dt', {}, k), h('dd', {}, v)); };
+  add('Price', r.priceWei == null ? 'unknown' : fmtAmount(r.priceWei, chainInfo()?.symbol || 'ETH'));
+  if (r.maxSupply != null) add('Minted', `${Number(r.totalMinted ?? 0).toLocaleString()} / ${Number(r.maxSupply).toLocaleString()}`);
+  if (r.maxPerWallet != null && r.maxPerWallet !== '0') add('Per wallet', String(r.maxPerWallet));
+  if (r.sigs?.length) add('Mint via', `${r.sigs[0]}${r.verified ? '' : ' (unverified)'}`);
+  if (r.standard) add('Standard', r.standard);
+  const pct = r.maxSupply && r.maxSupply !== '0' ? Math.min(100, (Number(r.totalMinted ?? 0) / Number(r.maxSupply)) * 100) : null;
+  const card = h('div', { class: 'mint' + (r.verdict === 'free-live' ? ' free' : '') },
+    h('div', { class: 'head' },
+      h('div', { style: 'min-width:0' }, h('div', { class: 'name' }, r.label || r.name || short(r.address)), r.symbol ? h('div', { class: 'hint' }, r.symbol) : null),
+      h('span', { class: `badge ${kind}` }, label)),
+    addrCell(r.address),
+    h('div', { class: 'hint' }, r.reason || ''),
+    kv.length ? h('dl', { class: 'kv' }, ...kv) : null,
+    pct != null ? h('div', { class: 'progress', title: `${pct.toFixed(1)}% minted` }, h('i', { style: `width:${pct}%` })) : null,
+  );
+  if (r.verdict === 'free-live') {
+    const b = h('button', { class: 'btn sm ' + (S.live ? 'danger' : 'primary'), 'data-writes': '', 'data-mintbtn': '', type: 'button' }, S.live ? 'Mint now' : 'Preview mint');
+    b.disabled = S.writing;
+    b.addEventListener('click', () => mintOne(r.address));
+    card.append(h('div', { class: 'actions', style: 'margin-top:4px' }, b, h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { $('wColl').value = r.address; $('wColl').scrollIntoView({ behavior: 'smooth', block: 'center' }); } }, 'Watch')));
+  } else if (r.verdict === 'closed' || r.verdict === 'paid-live') {
+    card.append(h('div', { class: 'actions', style: 'margin-top:4px' }, h('button', { class: 'btn sm ghost', type: 'button', onclick: () => { $('wColl').value = r.address; $('wColl').scrollIntoView({ behavior: 'smooth', block: 'center' }); $('wColl').focus(); } }, 'Watch for a free window')));
+  }
+  return card;
+}
+async function mintOne(addr) {
+  const q = Math.max(1, parseInt($('mQty').value, 10) || 1);
+  const argv = S.live ? ['auto', '--collection', addr, '--quantity', String(q), '--skip-underfunded'] : ['auto', '--collection', addr, '--quantity', String(q)];
+  const rec = await act(argv, `Mint ${q} per wallet from ${short(addr)} with every funded wallet`);
+  summarize(rec);
+  if (rec?.code === 0 && S.live) { S.walletsLoaded = false; }
+}
+$('mAuto').setAttribute('data-writes', '');
+$('mAuto').addEventListener('click', async () => {
+  const colls = mintColls(); if (colls === null) return;
+  const q = Math.max(1, parseInt($('mQty').value, 10) || 1);
+  const argv = ['auto', '--quantity', String(q), ...colls.flatMap((c) => ['--collection', c]), ...(S.live ? ['--skip-underfunded'] : [])];
+  const rec = await act(argv, `Mint ${q} per wallet from every FREE live collection${colls.length ? ` among ${colls.map(short).join(', ')}` : ''}`);
+  summarize(rec);
+});
+$('wStart').setAttribute('data-writes', '');
+$('wStart').addEventListener('click', async () => {
+  const coll = validColl('wColl', true); if (!coll) return;
+  const iv = Math.max(5, parseInt($('wInt').value, 10) || 20);
+  const mx = Math.max(1, parseInt($('wMax').value, 10) || 90);
+  const q = Math.max(1, parseInt($('mQty').value, 10) || 1);
+  const argv = ['watch', '--collection', coll, '--interval', String(iv), '--max-checks', String(mx), '--quantity', String(q)];
+  let rec;
+  if (S.live) {
+    const full = [...withChain(argv), '--auto', '--skip-underfunded'];
+    if (!(await confirmLive('Watch and mint automatically?', `Polls ${short(coll)} every ${iv}s (up to ${mx} checks) and mints the moment it is FREE and open, from every funded wallet.`, full))) return toast('Cancelled', 'warn');
+    rec = await run(full);
+  } else {
+    rec = await run(withChain(argv));
+  }
+  if (rec.canceled) toast('Watch stopped', 'warn');
+  else summarize(rec, rec.code === 0 ? 'Free window found' : 'No free window opened');
+});
+
+// ------------------------------------------------------------------ send
+document.querySelector('.tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-tab]'); if (!b) return;
+  document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  document.querySelectorAll('[data-tabpane]').forEach((p) => { p.hidden = p.dataset.tabpane !== b.dataset.tab; });
+  $('sColl').closest('.field').hidden = b.dataset.tab === 'hold';
+});
+const recount = () => counter($('sToCount'), parseAddrs($('sTo').value));
+$('sTo').addEventListener('input', recount); recount();
+function parsePlan(text) {
+  const ok = []; const bad = [];
+  String(text).split(/\n/).forEach((line, i) => {
+    const t = line.replace(/\/\/.*$/, '').trim();
+    if (!t || /^#(?!\d)/.test(t)) return;
+    const p = t.replace(/#/g, ' ').split(/[\s,]+/).filter(Boolean);
+    if (p.length >= 3 && ADDR.test(p[0]) && /^\d+$/.test(p[1]) && ADDR.test(p[2])) ok.push(p.slice(0, 3).join(' '));
+    else bad.push(i + 1);
+  });
+  return { ok, bad };
+}
+const replan = () => {
+  const { ok, bad } = parsePlan($('sPlan').value);
+  $('sPlanCount').replaceChildren(h('span', { class: ok.length ? 'good' : '' }, `${ok.length} transfer${ok.length === 1 ? '' : 's'}`), bad.length ? h('span', { class: 'bad' }, `line${bad.length > 1 ? 's' : ''} ${bad.slice(0, 5).join(', ')} not understood`) : null);
+};
+$('sPlan').addEventListener('input', replan); replan();
+$('sSpread').setAttribute('data-writes', '');
+$('sSpread').addEventListener('click', async () => {
+  const coll = validColl('sColl', true); if (!coll) return;
+  const { valid, bad } = parseAddrs($('sTo').value);
+  if (!valid.length || bad.length) { $('sTo').classList.add('bad'); return toast(bad.length ? 'Fix the highlighted recipients first' : 'Add at least one recipient', 'warn'); }
+  $('sTo').classList.remove('bad');
+  summarize(await act(['spread', '--collection', coll, '--to', valid.join(',')], `Send every NFT your wallets hold in ${short(coll)} to ${valid.length} recipient(s)`));
+});
+$('sShip').setAttribute('data-writes', '');
+$('sShip').addEventListener('click', async () => {
+  const coll = validColl('sColl', true); if (!coll) return;
+  const { ok, bad } = parsePlan($('sPlan').value);
+  if (!ok.length || bad.length) { $('sPlan').classList.add('bad'); return toast(bad.length ? `Fix line ${bad[0]} of the plan` : 'Add at least one transfer', 'warn'); }
+  $('sPlan').classList.remove('bad');
+  summarize(await act(['ship', '--collection', coll, '--plan', ok.join('\n')], `Send ${ok.length} specific NFT(s) from ${short(coll)}`));
+});
+$('sScan').addEventListener('click', async () => {
+  const box = $('sHold');
+  box.replaceChildren(h('span', { class: 'spinner' }), '  Reading holdings…');
+  const ch = chain();
+  const { data } = await runJson(withChain(['scan']), { label: 'scan' });
+  if (ch !== chain()) return;
+  if (!data.ok) return box.replaceChildren(h('div', { class: 'callout err' }, data.error || 'Scan failed'));
+  const rows = (data.rows || []).filter((r) => r.tokenCount > 0);
+  if (!rows.length) return box.replaceChildren(h('div', { class: 'empty' }, h('b', {}, 'No NFTs found'), 'None of your wallets hold tokens in this chain\'s watched collections.'));
+  box.replaceChildren(h('div', { class: 'tablewrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, 'Wallet'), h('th', {}, 'Collection'), h('th', { class: 'num' }, 'Count'), h('th', {}, 'Token ids'))),
+    h('tbody', {}, ...rows.map((r) => h('tr', {},
+      h('td', {}, addrCell(r.wallet)),
+      h('td', {}, h('div', {}, r.collectionLabel || short(r.collection)), h('div', { class: 'hint' }, short(r.collection))),
+      h('td', { class: 'num' }, String(r.tokenCount)),
+      h('td', { class: 'mono', style: 'font-size:12px' }, r.enumerable ? (r.tokens || []).slice(0, 20).join(', ') + ((r.tokens || []).length > 20 ? ' …' : '') : h('span', { class: 'badge warn' }, 'not enumerable'))))))));
+});
+
+// ------------------------------------------------------------------ gas
+const gcount = () => { const v = $('gTo').value.trim(); if (!v) { $('gToCount').replaceChildren(h('span', {}, 'every other wallet in your vault')); } else counter($('gToCount'), parseAddrs(v)); };
+$('gTo').addEventListener('input', gcount); gcount();
+$('gFund').setAttribute('data-writes', '');
+$('gFund').addEventListener('click', async () => {
+  const each = $('gEach').value.trim();
+  if (!/^\d*\.?\d+$/.test(each) || Number(each) <= 0) { $('gEach').classList.add('bad'); $('gEach').focus(); return toast('Enter an amount like 0.005', 'warn'); }
+  $('gEach').classList.remove('bad');
+  const raw = $('gTo').value.trim();
+  const argv = ['fund', '--each', each, '--from', $('gFrom').value || '0'];
+  if (raw) {
+    const { valid, bad } = parseAddrs(raw);
+    if (bad.length || !valid.length) { $('gTo').classList.add('bad'); return toast('Fix the recipient list first', 'warn'); }
+    $('gTo').classList.remove('bad');
+    argv.push('--to', valid.join(','));
+  }
+  if ($('gExact').checked) argv.push('--exact');
+  const rec = await act(argv, `Top wallets up to ${each} each`);
+  summarize(rec);
+  if (rec?.code === 0 && S.live) loadWallets();
+});
+
+// ------------------------------------------------------------------ rpc
+$('rAdd').setAttribute('data-writes', '');
+$('rAdd').addEventListener('click', async () => {
+  const url = $('rUrl').value.trim();
+  if (!/^https?:\/\/\S+$/.test(url)) { $('rUrl').classList.add('bad'); $('rUrl').focus(); return toast('Paste an http(s) RPC URL', 'warn'); }
+  $('rUrl').classList.remove('bad');
+  const name = ($('rName').value.trim() || 'custom').replace(/[^\w.-]/g, '-').slice(0, 40);
+  const rec = await run(['rpc', 'add', url, '--name', name, '--chain', chain()], { label: `rpc add ${name}` });
+  if (rec.code === 0) { $('rUrl').value = ''; toast(`Added ${name}. Running a speed test…`, 'ok'); $('rBench').click(); }
+  else toast('Could not add that RPC — see output', 'bad');
+});
+$('rBench').addEventListener('click', async () => {
+  const box = $('rOut');
+  box.replaceChildren(h('div', { class: 'card' }, h('span', { class: 'spinner' }), '  Timing every endpoint…'));
+  const ch = chain();
+  const { data } = await runJson(withChain(['bench']), { label: 'bench' });
+  if (ch !== chain()) return;
+  if (!data.ok) return box.replaceChildren(h('div', { class: 'callout err' }, data.error || 'Speed test failed'));
+  const rows = data.endpoints || [];
+  box.replaceChildren(h('div', { class: 'card' },
+    h('h2', {}, 'Speed test'), h('p', { class: 'sub' }, `${data.working} of ${rows.length} endpoint${rows.length === 1 ? '' : 's'} working · fastest first, used first`),
+    data.working < 2 ? h('div', { class: 'callout warn' }, 'Fewer than two working endpoints — one rate limit can stop a long run. Add another provider above.') : null,
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Provider'), h('th', {}, 'Tier'), h('th', { class: 'num' }, 'Latency'), h('th', {}, 'Status'), h('th', {}, 'URL'))),
+      h('tbody', {}, ...rows.map((r, i) => h('tr', {},
+        h('td', {}, h('b', {}, r.provider), i === 0 && r.ok ? h('span', { class: 'badge ok', style: 'margin-left:6px' }, 'fastest') : null),
+        h('td', {}, h('span', { class: 'badge ' + (r.tier === 'keyed' ? 'info' : 'mut') }, r.tier || 'public')),
+        h('td', { class: 'num' }, r.avg == null ? '—' : `${r.avg} ms`),
+        h('td', {}, r.ok ? h('span', { class: 'badge ok' }, r.avg < 150 ? 'fast' : r.avg < 500 ? 'ok' : 'slow') : h('span', { class: 'badge err' }, r.chainId != null ? `wrong chain (${r.chainId})` : 'unreachable')),
+        h('td', { class: 'mono', style: 'font-size:12px;color:var(--mut);word-break:break-all' }, r.url))))))));
+});
+$('rDoctor').addEventListener('click', async () => {
+  const box = $('rOut');
+  box.replaceChildren(h('div', { class: 'card' }, h('span', { class: 'spinner' }), '  Checking endpoints and proving failover…'));
+  const ch = chain();
+  const { data } = await runJson(withChain(['doctor']), { label: 'doctor' });
+  if (ch !== chain()) return;
+  if (data.ok === false && !data.endpoints) return box.replaceChildren(h('div', { class: 'callout err' }, data.error || 'Doctor failed'));
+  box.replaceChildren(h('div', { class: 'card' },
+    h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, h('h2', { style: 'margin:0' }, `Doctor · ${data.chainName}`), h('span', { class: 'badge ' + (data.healthy ? 'ok' : 'warn') }, data.healthy ? 'healthy' : 'needs attention')),
+    h('p', { class: 'sub', style: 'margin-top:6px' }, `${data.usable} of ${data.total} endpoint${data.total === 1 ? '' : 's'} usable · chain id ${data.chainId}`),
+    h('div', { class: 'callout ' + (data.failover?.ok ? 'ok' : 'warn') }, h('div', {}, h('b', {}, 'Failover: '), data.failover?.ok ? `proven — ${data.failover.detail}` : (data.failover?.detail || 'not tested'))),
+    h('div', { class: 'tablewrap' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Provider'), h('th', { class: 'num' }, 'Time'), h('th', {}, 'Result'), h('th', {}, 'URL'))),
+      h('tbody', {}, ...(data.endpoints || []).map((e) => h('tr', {},
+        h('td', {}, h('b', {}, e.provider)),
+        h('td', { class: 'num' }, `${e.ms} ms`),
+        h('td', {}, e.ok ? h('span', { class: 'badge ok' }, 'OK') : h('span', { class: 'badge err' }, e.error || 'failed')),
+        h('td', { class: 'mono', style: 'font-size:12px;color:var(--mut);word-break:break-all' }, e.url)))))),
+    (data.pooled || []).length ? h('dl', { class: 'kv', style: 'margin-top:14px' }, ...(data.pooled || []).flatMap((p) => [h('dt', {}, p.label), h('dd', {}, p.ok ? p.value : `failed: ${p.error}`)])) : null,
+  ));
+});
+
+// ------------------------------------------------------------------ boot
+(async function boot() {
+  const hash = location.hash.slice(1);
+  setLive(false);
+  await loadChains();
+  go(PAGES.includes(hash) ? hash : 'home');
+  await refreshStatus();
+  if (!S.chains.length) toast('Could not reach the local holder-kit process', 'bad', 8000);
+})();
+window.addEventListener('beforeunload', (e) => { if (S.runs.some((r) => r.running && r.argv[0] !== 'check')) { e.preventDefault(); e.returnValue = ''; } });
 </script>
 </body>
 </html>

@@ -36,6 +36,29 @@ const MAX_ATTEMPTS = 4;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Is this error the CHAIN's answer about the request (so every endpoint would
+ * say the same thing), rather than the endpoint failing?
+ *
+ * The old rule treated every -32000 as a request error. But -32000 is the
+ * generic geth server-error code: "header not found", "missing trie node",
+ * "request limit exceeded" and other per-node problems all use it — so a
+ * lagging or throttled node stopped the whole run instead of failing over.
+ */
+const REQUEST_ERROR = /execution reverted|revert|insufficient funds|nonce too low|nonce too high|already known|known transaction|replacement transaction underpriced|transaction underpriced|intrinsic gas too low|exceeds block gas limit|gas required exceeds|max fee per gas less than block base fee|max priority fee per gas higher|invalid sender|invalid transaction|tx fee .* exceeds/i;
+const NODE_PROBLEM = /header not found|missing trie node|limit exceeded|rate limit|too many requests|timeout|timed out|capacity|try again|unavailable|internal error|bad gateway|not synced|syncing/i;
+
+export function isRequestError(err) {
+  if (!err) return false;
+  if (err.isRevert || err.rpcCode === 3) return true;
+  const msg = String(err.message || '');
+  if (/execution reverted/i.test(msg)) return true; // even if the revert string says "rate limit"
+  if (NODE_PROBLEM.test(msg)) return false;
+  if (REQUEST_ERROR.test(msg)) return true;
+  // Invalid params / method-level answers are about the request, not the node.
+  return err.rpcCode === -32602 || err.rpcCode === -32003;
+}
+
 class Endpoint {
   constructor({ url, provider, tier, source }) {
     this.url = url;
@@ -199,14 +222,16 @@ export class RpcPool {
         // into a fake outage — reverts must never touch endpoint health.
         // -32003 (out of gas / insufficient funds) is likewise a property of the
         // request, not the transport.
-        if (err.isRevert || err.rpcCode === 3 || err.rpcCode === -32000 || err.rpcCode === -32003) {
+        if (isRequestError(err)) {
           ep.failures--; // undo the health penalty
+          err.isRequestError = true;
           throw err;
         }
 
         const rateLimited = err.status === 429 || /rate|too many|capacity|429/i.test(err.message);
-        const credit = rateLimited ? -3 : -1; // providers rarely recover instantly
-        for (let i = 0; i < credit; i++) ep.failures = Math.max(1, ep.failures);
+        // Providers rarely recover from a rate limit instantly: weigh it heavier
+        // so the backoff grows faster than for a one-off network blip.
+        if (rateLimited) ep.failures += 1;
         ep.bench(rateLimited ? `rate limited: ${err.message}` : err.message);
 
         process.stderr.write(
@@ -245,6 +270,12 @@ export class RpcPool {
       try {
         const started = Date.now();
         const out = await this.raw(ep.url, payload, { timeout: STALL_MS * 2 });
+        // Some providers answer a batch with a single error object (or refuse
+        // batches entirely). That is an endpoint limitation: fail over.
+        if (!Array.isArray(out)) throw new Error('endpoint does not support JSON-RPC batches');
+        // A batch where items came back rate-limited is not a success either.
+        const limited = out.filter((r) => r?.error && /rate|limit|too many|capacity/i.test(r.error.message || ''));
+        if (limited.length) throw new Error(`batch items rate limited (${limited.length}/${out.length})`);
         ep.lastLatency = Date.now() - started;
         ep.successes++;
         if (tried.length > 1) this.stats.failoverEvents++;
@@ -330,7 +361,16 @@ export class RpcPool {
     const deadline = Date.now() + timeoutMs;
     let seen = 0;
     while (Date.now() < deadline) {
-      const rc = await this.getTransactionReceipt(hash);
+      let rc;
+      try {
+        rc = await this.getTransactionReceipt(hash);
+      } catch (e) {
+        // A transient RPC outage while WAITING must not be reported as a failed
+        // transaction — it was already broadcast and may well be mined.
+        if (Date.now() + 2000 >= deadline) throw e;
+        await sleep(2000);
+        continue;
+      }
       if (rc) {
         seen++;
         if (onPoll) onPoll({ hash, confirmations: seen, status: rc.status });
