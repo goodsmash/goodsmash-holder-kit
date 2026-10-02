@@ -25,19 +25,47 @@ Never print, log, echo, or commit key material. `assertNoSecretLeak()` in
 
 ## Setup flow
 
-Run these in order; do not skip `doctor`.
+The holder runs ONE command themselves, then you verify it:
 
 ```bash
-node bin/holder-kit.mjs init                    # encrypted vault, hidden password
+node bin/holder-kit.mjs setup --wallets 20   # holder runs this, not you
+node bin/holder-kit.mjs check                # you run this
+node bin/holder-kit.mjs doctor --chain <chain>   # MUST pass before anything else
+```
+
+`setup` creates the vault, generates a password into `vault/PASSWORD.txt`,
+makes the wallets, checks the chain, and prints the next step. Never run
+`setup` on the holder's behalf, and never ask for their key.
+
+For a holder who already has keys:
+
+```bash
 node bin/holder-kit.mjs wallet from-seed        # holder pastes phrase THEMSELVES
 node bin/holder-kit.mjs wallet backup <path>    # second location, immediately
-cp config/endpoints.example.json config/endpoints.json   # holder adds their RPC
-node bin/holder-kit.mjs doctor --chain <chain>  # MUST pass before anything else
+node bin/holder-kit.mjs rpc add <url> --name <label>   # holder's own RPC
 ```
 
 `doctor` proves failover by breaking the first endpoint on purpose. Fewer than
 two usable endpoints means one rate limit will stop a run — tell the holder to
 add a keyed provider before doing anything at scale.
+
+## Verification status
+
+Both suites are real and must stay green:
+
+- `npm test` — 72 tests on a local anvil chain with Forge-deployed contracts.
+- `npm run test:testnet` — 23 tests against **live Robinhood Chain testnet**
+  (chain 46630), against a free-mint contract deployed at
+  `0xE76Db0a41E7e0a7125F256679D1b080d0c9810af`. It funds wallets, mints for real
+  with no prompts, transfers NFTs to a real recipient, and reads every result
+  back from the chain. Needs a funded testnet key via
+  `ROBINHOOD_TESTNET_DEPLOYER_KEY`.
+- `npm run verify` — both, in order.
+
+If you touch `src/rpc.mjs`, `src/signer.mjs`, or `src/mint.mjs`, run
+`npm run verify`. Those files carry node-compatibility fixes that are easy to
+break silently (chainId/nonce hex typing, revert-vs-transport handling, fee
+ordering). See the bug table in README.md.
 
 ## Command reference
 

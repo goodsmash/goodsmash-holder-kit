@@ -36,22 +36,65 @@ Requires Node.js 20+.
 
 ---
 
-## One-time setup
+## Setup — one command, no questions asked
 
 ```bash
-# 1. Create the encrypted vault (choose a password)
-node bin/holder-kit.mjs init
+node bin/holder-kit.mjs setup
+```
 
-# 2. Get your wallets in — pick ONE
-node bin/holder-kit.mjs wallet from-seed      # paste a recovery phrase (hidden input)
-node bin/holder-kit.mjs wallet new 20        # generate 20 fresh wallets
-node bin/holder-kit.mjs wallet add keys.json # import existing keys
+That's it. `setup` is safe to re-run and never overwrites what you already have.
+It will:
 
-# 3. Back the vault up somewhere else, NOW
+1. **create your encrypted vault** — it generates a strong random password,
+   saves it to `vault/PASSWORD.txt`, and prints the path. Put that somewhere
+   safe (not in the repo, not in a screenshot). You can replace it later with
+   `wallet change-password`.
+2. **generate a wallet** (or import a seed phrase if you pass one)
+3. **check the chain** is reachable and print the block, chain id, and gas price
+4. **verify your RPCs** are usable and report failover status
+5. **write a first backup** of the vault to `vault/holder.vault.backup.bin`
+
+Then confirm it all works with:
+
+```bash
+node bin/holder-kit.mjs check
+```
+
+If `setup` can't reach a chain, it still finishes and tells you what to run.
+Nothing here is destructive.
+
+### Non-interactive / agent mode
+
+If you want no prompts at all, `setup` reads these environment variables and
+never asks anything:
+
+```bash
+export HOLDER_KIT_PASSWORD='a strong password you choose'
+node bin/holder-kit.mjs setup --wallets 20
+```
+
+Everything after that runs unattended: `--auto` skips per-transaction
+confirmation (the vault still has to be unlocked, locally).
+
+---
+
+## Already have keys? Skip the vault setup
+
+```bash
+# Import a recovery phrase (hidden input, never echoed)
+node bin/holder-kit.mjs wallet from-seed
+
+# Or generate fresh wallets
+node bin/holder-kit.mjs wallet new 20
+
+# Or import existing keys from a JSON file
+node bin/holder-kit.mjs wallet add keys.json
+
+# Back the vault up somewhere else, NOW
 node bin/holder-kit.mjs wallet backup D:/my-cold-backup.vault
 ```
 
-After step 2 you never sign anything by hand again. Every command below reads
+After this you never sign anything by hand again. Every command below reads
 the key from the vault and signs locally.
 
 > **Back up the vault file.** It is the only thing standing between you and your
@@ -60,16 +103,39 @@ the key from the vault and signs locally.
 
 ---
 
-## Add an RPC (this is the single highest-value fix)
+## Add your own RPCs (the single highest-value fix)
 
 Public RPCs get rate limited. That is the #1 cause of "my run just stopped".
+You can add **as many as you like** — they get ranked by measured speed, and the
+fastest healthy one is used first with automatic failover to the rest.
+
+### The easy way
+
+```bash
+# Add a provider (any EVM RPC — Alchemy, QuickNode, Infura, Chainstack, your own node…)
+node bin/holder-kit.mjs rpc add https://…your-key…
+
+# Name it and add a second, so one rate limit can't stop you
+node bin/holder-kit.mjs rpc add https://…second-key… --name backup
+
+# See every endpoint ranked by real measured speed
+node bin/holder-kit.mjs bench --chain robinhoodMainnet
+```
+
+Your providers are written to `config/endpoints.json`, which is **gitignored** —
+your API keys never leave your machine and never land in the repo.
+
+### The manual way
 
 ```bash
 cp config/endpoints.example.json config/endpoints.json
-# paste your URL — free tier available at https://app.quicknode.com
+# paste your URLs — free tier at https://app.quicknode.com
 ```
 
-Then check it works:
+### Which one gets used?
+
+Endpoints are scored on live latency and recent failures. The fastest healthy
+one wins; if it fails or rate-limits you, the next takes over transparently.
 
 ```bash
 node bin/holder-kit.mjs doctor --chain robinhoodMainnet
@@ -78,6 +144,13 @@ node bin/holder-kit.mjs doctor --chain robinhoodMainnet
 `doctor` times every endpoint, **proves failover by deliberately breaking the
 first one**, and tells you how many usable endpoints you have. Fewer than two
 working endpoints means one rate limit will stop you.
+
+### Going fast
+
+`bench` prints real p50 latency per endpoint. For maximum throughput, add two
+or three providers on different upstreams — even two free tiers on different
+networks remove most rate limiting. Use `--rpc <url>` on any single command to
+force one endpoint for that run and skip the pool entirely.
 
 ---
 
@@ -182,16 +255,65 @@ scan holdings, and run auto-mints without hand-holding.
 
 ---
 
-## Tests
+## Tests — both suites are real
 
 ```bash
-npm test
+npm test          # 72 tests: local anvil + Forge-deployed contracts
+npm run test:testnet   # 23 tests: LIVE Robinhood Chain TESTNET (46630)
+npm run verify    # both, in order
 ```
 
-72 tests against a real local anvil chain with real deployed contracts —
-covering ABI encoding against known selectors, vault round-trip/wrong-password/
-tamper, RPC failover recovery, live NFT transfers, and mint-state detection.
-No mocks of this codebase's own logic.
+**`npm test` — 72 passing.** A real local anvil chain with real Forge-deployed
+contracts. Covers ABI encoding against known selectors, vault
+round-trip/wrong-password/tamper, RPC failover recovery, live NFT transfers,
+and mint-state detection. No mocks of this codebase's own logic.
+
+**`npm run test:testnet` — 23 passing against live chain state.** This is not a
+simulation: it deploys a free-mint contract to Robinhood testnet and does real
+transactions with real keys, asserting the result by reading the chain back.
+
+```
+PASS  contract has bytecode on testnet        7742 bytes
+PASS  chain id is 46630                       got 46630
+PASS  scanner verdict is FREE LIVE            free-live (free mint, callable now)
+PASS  price is genuinely 0                    0 wei
+PASS  mint shape gas-verified                 mint(uint256)
+PASS  fee cap tracks the real gas price       gas=0.00000000001 cap=0.000000000015
+PASS  vault created with 2 wallet(s)
+PASS  funded wallet(s) hold real testnet ETH  0.0000105 / 0.0000105
+PASS  auto-mint succeeded with no prompt      sent=2/2
+PASS  totalSupply actually increased on chain 21 -> 23
+PASS  wallet owns a real token id             token #22
+PASS  ownerOf confirms it owns it
+PASS  per-wallet limit is enforced on chain   reverted: call would revert, not broadcast
+PASS  a within-limit mint still succeeds      minted 1 more
+PASS  scanner reports paused as closed        closed (no mint function accepts a call)
+PASS  wallet holds both minted tokens         holding 2
+PASS  every NFT really transferred elsewhere  sent=2/2
+PASS  recipient balance increased by every transfer
+PASS  sender wallet is now empty
+PASS  re-running sends nothing (ledger)       sent=0
+
+23 passed, 0 failed  — against Robinhood TESTNET
+```
+
+The testnet run needs a funded testnet key. It reads one from
+`ROBINHOOD_TESTNET_DEPLOYER_KEY` in your env file and never prints it. If the
+balance is short it funds fewer wallets and says so, rather than faking a pass.
+
+### Bugs this testing caught (and fixed)
+
+Worth listing, because they're all silent-failure bugs — the kind that look like
+"the chain is weird" rather than "our code is wrong":
+
+| Bug | Symptom | Fix |
+|---|---|---|
+| `chainId` / `nonce` sent as JSON numbers | Every gas estimate failed with a Go unmarshal error; the signer fell back to an unpayable 3,000,000 gas cap | Hex-encode both — nodes type them as `hexutil.Big` |
+| Revert during gas estimation silently fell through to the gas cap | A sold-out or limit-blocked mint reported **"insufficient funds"**, blaming the wallet instead of the contract | Reverts are now surfaced, never broadcast |
+| `maxPriorityFeePerGas` above `maxFeePerGas` | Node rejected the tx outright | Priority fee capped below the max fee |
+| `formatUnits` called via `.map()` | Printed `0.24` for a 0.24 balance — the array index became the decimals argument | Wrapped the callback |
+| Gas budgeted at a flat 300k/mint | Correctly-funded wallets were reported underfunded | Budget from the real gas price |
+| Addresses not EIP-55 checksummed | Rejected by strict nodes | Checksum all outbound addresses |
 
 ---
 

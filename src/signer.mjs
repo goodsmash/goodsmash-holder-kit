@@ -28,23 +28,37 @@ export class Signer {
 
     if (maxFeePerGas == null) {
       const gasPrice = await this.pool.gasPrice();
+      // maxPriorityFeePerGas must stay strictly BELOW maxFeePerGas or the node
+      // rejects with "max priority fee per gas higher than max fee per gas".
+      // gasPrice/10 only holds while maxFee is >= 1.1x gasPrice, which 1.5x is.
       fees = {
-        // EIP-1559 shape; RH Chain accepts type-2 at low base fees.
         maxFeePerGas: (gasPrice * 3n) / 2n,
-        maxPriorityFeePerGas: gasPrice / 10n,
+        maxPriorityFeePerGas: gasPrice / 5n,
       };
     }
 
     const request = { to, data, value, nonce, chainId: this.chain.id, ...fees };
 
-    // Estimate gas, but never let a revert in estimation block a send that the
-    // caller explicitly priced (some mints revert on estimate during a sale spike).
+    // Estimate gas, but only let a TRANSPORT failure force the gas cap.
+    //
+    // An estimate that fails because the CONTRACT reverts is a real answer from
+    // the chain: the call cannot succeed. Broadcasting anyway wastes the gas cap
+    // and produces a misleading "insufficient funds" error, which looks like a
+    // wallet problem instead of "this mint is closed / limited / sold out".
     if (gasLimit) {
       request.gas = gasLimit;
     } else {
       try {
         request.gas = await this.pool.estimateGas({ from: this.address, ...request });
       } catch (e) {
+        // RpcPool tags contract reverts with isRevert; transport/parse failures
+        // have no tag. Only the former means "this call cannot succeed".
+        if (e.isRevert || e.reverted) {
+          const err = new Error(`call would revert, not broadcast: ${e.message}`);
+          err.reverted = true;
+          err.isRevert = true;
+          throw err;
+        }
         if (!quiet) process.stderr.write(`[send] gas estimate failed (${e.message.slice(0, 70)}); using cap\n`);
         request.gas = 3_000_000n;
       }

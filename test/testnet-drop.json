@@ -1,0 +1,12 @@
+{
+  "chain": "robinhoodTestnet",
+  "chainId": 46630,
+  "rpc": "https://rpc.testnet.chain.robinhood.com",
+  "explorer": "https://explorer.testnet.chain.robinhood.com/address/0xE76Db0a41E7e0a7125F256679D1b080d0c9810af",
+  "contract": "0xE76Db0a41E7e0a7125F256679D1b080d0c9810af",
+  "deployTx": "0x7f22a53435f373561a926e7a2bff3b998b160cbb197d0a7ffd948bb3c4d13523",
+  "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "hasCode": true,
+  "note": "Testnet only. These tokens have no value and must never be presented as real.",
+  "deployedAt": "2026-10-02T09:12:39.720Z"
+}

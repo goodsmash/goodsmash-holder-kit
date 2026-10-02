@@ -8,6 +8,8 @@
   "bin": { "holder-kit": "./bin/holder-kit.mjs" },
   "scripts": {
     "test": "node test/run-tests.mjs",
+    "test:testnet": "node test/testnet-proof.mjs",
+    "verify": "node test/run-tests.mjs && node test/testnet-proof.mjs",
     "doctor": "node bin/holder-kit.mjs doctor"
   },
   "dependencies": {

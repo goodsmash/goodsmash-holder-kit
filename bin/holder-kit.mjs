@@ -4,7 +4,7 @@
 // Hard rule: private keys are read from an encrypted vault on THIS machine,
 // signed locally, and sent only to the RPC endpoint the holder configured.
 // There is no key server, no telemetry, and no third-party signer.
-import { readFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { generatePrivateKey, privateKeyToAccount, mnemonicToAccount } from 'viem/accounts';
@@ -20,6 +20,7 @@ import { mintAll, mintReport } from '../src/mint.mjs';
 import { scanForMints, printMintScan, watchAndMint } from '../src/mintscan.mjs';
 import { formatUnits } from '../src/abi.mjs';
 import { RunLedger, isDryRun, isAuto, gateBroadcast, Aborted, dedupeAddresses, assertChainExpectation } from '../src/safety.mjs';
+import { quickSetup, selfCheck } from '../src/setup.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VAULT_PATH = process.env.HOLDER_KIT_VAULT || join(ROOT, 'vault', 'holder.vault');
@@ -39,6 +40,28 @@ function flag(argv, name, fallback = undefined) {
   if (i === -1) return fallback;
   const next = argv[i + 1];
   return next && !next.startsWith('--') ? next : true;
+}
+
+/**
+ * Collect every --address value.
+ *
+ * `flag()` returns the VALUE when one follows, and `true` when addresses are
+ * passed bare (`--address 0xa 0xb`). Treating only the `true` case as a list
+ * silently dropped the single most common form, `--address 0xOne`.
+ */
+function addressList(argv) {
+  const out = [];
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] !== '--address') continue;
+    const next = argv[i + 1];
+    if (next && !next.startsWith('--')) {
+      out.push(next);
+    } else {
+      // bare form: consume following address-looking tokens
+      for (let j = i + 1; j < argv.length && /^0x[0-9a-fA-F]{40}$/.test(argv[j]); j++) out.push(argv[j]);
+    }
+  }
+  return out.length ? out.filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a)) : undefined;
 }
 
 function listFiles(pathOrList) {
@@ -79,51 +102,305 @@ async function context(argv) {
 }
 
 const HELP = `
-${C.b('holder-kit')} ${C.dim('— self-custodied holder toolkit for EVM chains')}
+${C.b('holder-kit')} ${C.dim('— one command and you never sign anything again')}
 
-${C.b('SETUP')}   ${C.dim('(do this once — after it you never sign anything again)')}
-  init                       Create the encrypted vault (asks for a password)
-  wallet from-seed           Paste a recovery phrase ONCE, derive + encrypt it
-  wallet new <count>         Generate new wallets into the vault
-  wallet add <file|dir>      Import private keys from JSON/txt files
-  wallet list                Addresses + balances only, never keys
-  wallet backup <path>       Write an encrypted copy to a second location
-  wallet remove <address>    Remove a wallet from the vault
-  doctor  [--chain X]        Test every RPC, prove failover, list collections
-  chains                     Show supported chains
-  endpoints                  Show the RPC pool and how to add a keyed one
+  ${C.c('node bin/holder-kit.mjs setup')}          ${C.dim('START HERE — creates everything, no questions')}
+  ${C.c('node bin/holder-kit.mjs setup 5')}       ${C.dim('same, plus 5 new wallets')}
 
-${C.b('READ')}
-  scan  [--chain X]          Inventory: NFTs + native per wallet per collection
-  find  [--chain X]          Is any mint FREE and LIVE right now? (chain state only)
-  find --address 0x...       Check a specific collection
-  mint-report <collection>   Probe a collection's mint shape, price, limits
+${C.b('AFTER SETUP')}   ${C.dim('all of these are automatic — no prompts, no signing')}
+  find                      Is any mint FREE and open right now?
+  auto                      Mint every free live mint from all your wallets
+  watch --collection 0x...  Wait for a free window, then mint it
+  spread --collection 0x... --to holders.txt    Send NFTs round-robin to holders
+  ship   --collection 0x... --plan plan.txt     Send specific NFTs to specific people
+  fund   --each 0.005 --to wallets.txt          Split gas across wallets
+  scan                      What do I hold?
+  mint-report 0x...          Everything about one collection's mint
 
-${C.b('AUTO')}   ${C.dim('(fully automatic — you approve nothing, it just runs)')}
-  auto   [--quantity 1]      Find every free live mint and mint it from all wallets
-  watch --collection <addr>  Poll until a free window opens, then mint it
-  auto   --address 0x...     Auto-mint one specific collection when it is free
+${C.b('CHECKS')}
+  doctor  [--chain X]       Test every RPC and prove failover works
+  check                     One-line "is everything ready?" answer
+  wallet list               Addresses + balances (never keys)
+  wallet backup <path>      Encrypted copy to a second location
+  wallet new <count>        Generate more wallets
+  wallet from-seed          Import a recovery phrase (hidden input)
+  chains                    Supported chains
 
-${C.b('ACT')}   ${C.dim('(dry-run by default; --auto or --execute to send)')}
-  spread --collection <addr> --to <file|list>   Deal NFTs round-robin to holders
-  ship   --collection <addr> --plan <file>      Send specific NFTs to specific people
-  fund   --each 0.01 --to <file|list>           Split native gas across wallets
-  mint   --collection <addr> [--quantity 1]     Mint per wallet
-
-${C.b('EXAMPLES')}
-  holder-kit doctor --chain robinhoodMainnet
-  holder-kit wallet from-seed --accounts 10
-  holder-kit auto --quantity 1
-  holder-kit spread --collection 0x1DFE... --to holders.txt --auto
-  holder-kit fund --each 0.005 --to wallets.txt --auto
-
-${C.dim('Safety: keys never leave your machine. Nothing is sent to us, ever.')}
-${C.dim('Dry run is the default. --auto runs everything hands-free.')}
-${C.dim('Set HOLDER_KIT_AUTO=1 to make --auto the default for every command.')}
+${C.dim('Keys are encrypted on your machine and never leave it. Nothing is sent to us.')}
+${C.dim('Every action is a dry run until you add --auto or --execute.')}
+${C.dim('HOLDER_KIT_AUTO=1 makes every command automatic.')}
 `;
+
+const AGENT_AUTH = `
+${C.b('Hermes / AI agent authorisation')}
+${C.dim('An agent may run, unattended: setup, check, doctor, chains, endpoints,')}
+${C.dim('wallet list/new/from-seed/backup, scan, find, mint-report, and the dry-run')}
+${C.dim('form of every action. Agents MUST NOT: read or print key material, pass')}
+${C.dim('--auto/--execute, override ceilings, or broadcast on an unnamed chain.')}
+Full contract: agents/AGENTS.md  ·  machine rules: agents/SKILL.md
+`;
+
+
+/**
+ * One-command onboarding. No prompts, no flags required, safe to re-run.
+ *
+ * This is the ONLY thing a brand-new user should have to type. It creates the
+ * vault (generating a strong password when nobody is there to type one), runs
+ * the self-check, and tells them the single next command.
+ */
+async function runSetup(rest) {
+  const args = rest.filter(Boolean);
+  // `--wallets 3` or a bare `3`. Default to 1: a brand-new vault with no wallets
+  // cannot do anything useful, so make setup produce something runnable.
+  const bare = args.find((a) => /^\d+$/.test(a));
+  const walletCount = Number(flag(args, 'wallets', bare ?? 1)) || 1;
+  const chainKey = flag(args, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet');
+
+  console.log(`\n${C.b('holder-kit setup')} ${C.dim('— one time, then you never sign anything')}\n`);
+
+  const vaultDir = dirname(VAULT_PATH);
+  mkdirSync(vaultDir, { recursive: true });
+
+  let res;
+  try {
+    res = await quickSetup({
+      vaultPath: VAULT_PATH,
+      vaultDir,
+      password: flag(args, 'password', undefined) === true ? undefined : flag(args, 'password'),
+      interactive: !!process.stdin.isTTY,
+      walletCount,
+    });
+  } catch (e) {
+    console.error(`${C.r('setup failed')}: ${e.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  for (const s of res.steps) console.log(`  ${C.g('ok')} ${s.msg}`);
+
+  if (res.passwordFile) {
+    console.log(`\n  ${C.b('Your vault password is saved here:')}`);
+    console.log(`  ${C.c(res.passwordFile)}`);
+    console.log(`  ${C.dim('Move it somewhere safe. Anyone with that file AND the vault has your keys.')}`);
+  } else if (res.passwordSource === 'HOLDER_KIT_PASSWORD') {
+    console.log(`\n  ${C.dim('using the password from HOLDER_KIT_PASSWORD')}`);
+  }
+
+  // Self-check against the real chain, but never let a network problem
+  // abort setup — a working vault on a flaky network is still progress.
+  console.log(`\n${C.b('checking')} ${chainKey}...\n`);
+  try {
+    const { spec, pool } = await context(args);
+    const checks = await selfCheck(pool, VAULT_PATH);
+    let bad = 0;
+    for (const c of checks) {
+      if (c.ok) console.log(`  ${C.g('ok')} ${C.b(c.name)} ${C.dim(c.detail)}`);
+      else {
+        bad++;
+        console.log(`  ${C.r('x ')} ${C.b(c.name)} ${C.dim(c.detail)}`);
+      }
+    }
+    console.log(
+      bad
+        ? `\n  ${bad} check(s) failed. Run ${C.c('node bin/holder-kit.mjs doctor')} for detail.`
+        : `\n  ${C.g('all checks passed')}`
+    );
+  } catch (e) {
+    console.log(`  ${C.y('?')} could not reach the chain: ${e.message.slice(0, 70)}`);
+    console.log(`    ${C.dim('this is fine — retry later with: node bin/holder-kit.mjs doctor')}`);
+  }
+
+  console.log(`\n${C.b("You're done.")} Nothing else to configure.\n`);
+  console.log(`  ${C.c('node bin/holder-kit.mjs find')}          ${C.dim("what's free and open right now")}`);
+  console.log(`  ${C.c('node bin/holder-kit.mjs auto')}          ${C.dim('mint it automatically')}`);
+  console.log(`  ${C.c('node bin/holder-kit.mjs scan')}          ${C.dim('see what you hold')}`);
+  console.log(`\n  ${C.dim('add your own RPC for more speed:')} node bin/holder-kit.mjs rpc add <url>\n`);
+}
+
+/** One-line readiness answer, designed to be safe to call from an agent. */
+async function runCheck(argv) {
+  const chainKey = flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet');
+  const results = [];
+  let ok = true;
+
+  const record = (name, good, detail) => {
+    results.push({ name, good, detail });
+    if (!good) ok = false;
+  };
+
+  record('vault', existsSync(VAULT_PATH), existsSync(VAULT_PATH) ? VAULT_PATH : 'missing — run: setup');
+
+  if (existsSync(VAULT_PATH)) {
+    try {
+      const v = await Vault.open(VAULT_PATH, {
+        password: process.env.HOLDER_KIT_PASSWORD || undefined,
+      });
+      record('wallets', v.wallets.length > 0, `${v.wallets.length} in vault`);
+      v.lock();
+    } catch (e) {
+      record('wallets', false, /password/i.test(e.message) ? 'vault locked (no HOLDER_KIT_PASSWORD set)' : e.message.slice(0, 50));
+    }
+  }
+
+  try {
+    const { spec, pool } = await context(argv);
+    const bn = await pool.blockNumber();
+    record('rpc', true, `${spec.name} block ${parseInt(bn, 16)} via ${pool.active}/${pool.endpoints.length} endpoints`);
+  } catch (e) {
+    record('rpc', false, e.message.slice(0, 60));
+  }
+
+  for (const r of results) {
+    console.log(`  ${r.good ? C.g('ok') : C.r('FAIL')}  ${C.b(r.name.padEnd(9))} ${C.dim(r.detail)}`);
+  }
+  const ready = ok;
+  console.log(
+    ready
+      ? `\n${C.g('READY')} — run ${C.c('find')} to see what is free, or ${C.c('auto')} to mint it.\n`
+      : `\n${C.y('NOT READY')} — fix the items above, or run ${C.c('node bin/holder-kit.mjs setup')}\n`
+  );
+  process.exitCode = ready ? 0 : 1;
+}
+
+/**
+ * Benchmark every configured RPC and rank them, so a holder can pick the fast
+ * one. Also supports adding a custom endpoint in one command.
+ */
+async function runBench(argv) {
+  const add = flag(argv, 'add', false);
+  if (add !== false && typeof add === 'string') {
+    addEndpoint(add, flag(argv, 'name', 'custom'), flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet'));
+    return;
+  }
+
+  const chainKey = flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet');
+  const runs = Number(flag(argv, 'runs', 3));
+  const { spec } = await context(argv);
+
+  console.log(`\n${C.b('RPC speed test')} — ${spec.name}, ${runs} round(s) each\n`);
+    const rows = [];
+    for (const ep of spec.endpoints) {
+      const times = [];
+      let ok = false;
+      let chainId = null;
+      let block = null;
+      for (let i = 0; i < runs; i++) {
+        const t0 = Date.now();
+        const rpc = async (method) => {
+          const res = await fetch(ep.url, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ jsonrpc: '2.0', id: i + 1, method, params: [] }),
+            signal: AbortSignal.timeout(10_000),
+          });
+          return res.json();
+        };
+        try {
+          // eth_chainId must be its own call. Reading it out of an
+          // eth_blockNumber response (hex, e.g. 78155128) made every healthy
+          // endpoint report a bogus "chainId mismatch".
+          const idRes = await rpc('eth_chainId');
+          if (!idRes.error) chainId = Number(idRes.result);
+          const bnRes = await rpc('eth_blockNumber');
+          if (!bnRes.error) {
+            ok = chainId === spec.id;
+            block = Number(bnRes.result);
+            times.push(Date.now() - t0);
+          }
+        } catch {
+          /* record the failure and move on */
+        }
+      }
+      const avg = times.length ? Math.round(times.reduce((a, b) => a + b, 0) / times.length) : null;
+      rows.push({ provider: ep.provider, tier: ep.tier, ok, avg, chainId, block, url: redactUrl(ep.url) });
+    }
+
+    // Fastest FIRST. Sorting descending handed the slowest healthy endpoint to
+    // every subsequent request while calling it "fastest".
+    rows.sort((a, b) => {
+      if (a.ok !== b.ok) return a.ok ? -1 : 1;
+      return (a.avg ?? 1e9) - (b.avg ?? 1e9);
+    });
+    for (const r of rows) {
+      const speed = !r.ok ? C.r(r.avg == null ? 'unreachable' : 'wrong chain') : r.avg < 150 ? C.g(`${r.avg}ms  fast`) : r.avg < 500 ? `${r.avg}ms  ok` : C.y(`${r.avg}ms  slow`);
+      const tier = r.tier === 'keyed' ? C.c('keyed ') : C.dim('public ');
+      console.log(`  ${tier} ${String(r.provider).padEnd(22)} ${speed}`);
+      console.log(`         ${C.dim(r.url)}`);
+      if (r.ok) console.log(`         ${C.dim(`chain ${r.chainId}, block ${r.block}`)}`);
+      else if (r.chainId != null) console.log(`         ${C.r(`chainId mismatch: got ${r.chainId}, expected ${spec.id}`)}`);
+    }
+
+    const best = rows.find((r) => r.ok); // rows are sorted fastest-first, so this IS the fastest
+  console.log('');
+  if (best) {
+    console.log(`  ${C.g('fastest')}: ${C.c(best.provider)} at ${best.avg}ms`);
+    console.log(`  ${C.dim('It is used first automatically; the rest stay as failover.')}`);
+    if (rows.filter((r) => r.ok).length < 2) {
+      console.log(`\n  ${C.y('Only one working endpoint.')} Add another so a rate limit cannot stop you:`);
+      console.log(`    node bin/holder-kit.mjs rpc add <your-url>`);
+    }
+  } else {
+    console.log(`  ${C.r('No endpoint works for this chain.')} node bin/holder-kit.mjs rpc add <your-url>`);
+  }
+  console.log('');
+}
+
+/** Persist a custom RPC into the holder's endpoints file. */
+function addEndpoint(url, name, chainKey) {
+  const file = join(ROOT, 'config', 'endpoints.json');
+  let cfg = {};
+  if (existsSync(file)) {
+    try {
+      cfg = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      console.error(`${C.r('config/endpoints.json is not valid JSON')} — fix or delete it, then retry\n`);
+      process.exitCode = 1;
+      return;
+    }
+  }
+  cfg.providers = cfg.providers || {};
+  cfg.assignments = cfg.assignments || {};
+
+  // Accept a bare URL or a "name=url" pair so repeat calls don't collide.
+  let providerName = name;
+  let providerUrl = url;
+  if (url.includes('=') && url.indexOf('=') < url.indexOf('://')) {
+    const [n, ...rest] = url.split('=');
+    providerName = n;
+    providerUrl = rest.join('=');
+  }
+  if (!/^https?:\/\//.test(providerUrl)) {
+    console.error(`${C.r('that does not look like a URL')}: ${providerUrl}\n`);
+    process.exitCode = 1;
+    return;
+  }
+
+  cfg.providers[providerName] = { url: providerUrl, tier: 'keyed' };
+  const list = cfg.assignments[chainKey] || [];
+  if (!list.includes(providerName)) list.unshift(providerName);
+  cfg.assignments[chainKey] = list;
+
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(cfg, null, 2));
+  console.log(`\n  ${C.g('added')} ${C.c(providerName)} -> ${redactUrl(providerUrl)}`);
+  console.log(`  ${C.dim(`assigned to ${chainKey}, ranked first`)}`);
+  console.log(`\n  ${C.dim('saved to config/endpoints.json (gitignored — your key stays local)')}\n`);
+}
 
 async function main() {
   const argv = process.argv.slice(2);
+  // `agent-auth` (and a bare `agents`) just prints what an agent may do.
+  if (argv[0] === 'agent-auth' || argv[0] === 'agents' || argv[0] === 'perms') {
+    console.log(AGENT_AUTH);
+    return;
+  }
+  // `setup` with no other flags is THE entry point: bare `holder-kit` and
+  // `holder-kit <number>` both mean "set me up", not "print help".
+  if (argv[0] === undefined || /^\d+$/.test(argv[0])) {
+    await runSetup(argv);
+    return;
+  }
+
   const cmd = argv[0];
 
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
@@ -132,6 +409,36 @@ async function main() {
   }
 
   switch (cmd) {
+    case 'setup': {
+      await runSetup(argv.slice(1));
+      break;
+    }
+
+    case 'rpc': {
+      // `rpc add <url>` is the friendly spelling of `bench --add`.
+      const sub = argv[1];
+      if (sub === 'add') {
+        addEndpoint(flag(argv, 'url', argv[2]), flag(argv, 'name', 'custom'), flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet'));
+      } else if (sub === 'list' || sub === undefined) {
+        await runBench(argv.filter((a) => a !== 'rpc' && a !== 'list'));
+      } else {
+        console.error(`${C.r('unknown rpc subcommand')}: ${sub}\n  try: rpc add <url>  |  rpc list\n`);
+        process.exitCode = 1;
+      }
+      break;
+    }
+
+    case 'check': {
+      await runCheck(argv);
+      break;
+    }
+
+    case 'bench':
+    case 'rpc-speed': {
+      await runBench(argv);
+      break;
+    }
+
     case 'init': {
       const v = await openVault({ create: true });
       const res = v.save();
@@ -326,8 +633,7 @@ async function main() {
     case 'find': {
       // "Is anything free and live right now?" — answered from chain state only.
       const { spec, pool } = await context(argv);
-      const addr = flag(argv, 'address', false);
-      const addresses = addr === true ? argv.slice(argv.indexOf('--address') + 1).filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a)) : undefined;
+      const addresses = addressList(argv);
       const results = await scanForMints(pool, spec, { addresses });
       printMintScan(results, `${spec.name} (id ${spec.id})`);
       const free = results.filter((r) => r.verdict === 'free-live');
@@ -371,8 +677,7 @@ async function main() {
       const signers = signersFrom(v, pool, spec);
       if (!signers.length) throw new Error('vault has no wallets — run: holder-kit wallet new 5');
       const quantity = Number(flag(argv, 'quantity', 1));
-      const addr = flag(argv, 'address', false);
-      const addresses = addr === true ? argv.slice(argv.indexOf('--address') + 1).filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a)) : undefined;
+      const addresses = addressList(argv);
 
       const results = await scanForMints(pool, spec, { addresses });
       printMintScan(results, `${spec.name} (id ${spec.id})`);

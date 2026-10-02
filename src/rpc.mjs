@@ -5,6 +5,30 @@
 // This is the difference between "the holder's script died" and "the script
 // kept working while a provider rate-limited us".
 import { redactUrl } from './config.mjs';
+import { keccak256, toBytes } from 'viem/utils';
+
+/**
+ * EIP-55 checksum an address.
+ *
+ * Required, not cosmetic: several nodes (Robinhood Chain testnet among them)
+ * decode `to` with a Go struct that rejects an all-lowercase hex string, so an
+ * unchecksummed address fails with a confusing -32602 "cannot unmarshal hex
+ * string of odd length". Checksumming sidesteps that entirely and is also what
+ * explorers display, so logs match what a holder sees.
+ */
+export function toChecksum(addr) {
+  if (typeof addr !== 'string') return addr;
+  const a = addr.toLowerCase().replace(/^0x/, '');
+  if (!/^[0-9a-f]{40}$/.test(a)) return addr; // not a plain address; pass through
+  let hex = '';
+  for (const b of toBytes(keccak256('0x' + a))) hex += b.toString(16).padStart(2, '0');
+  // EIP-55: uppercase a hex digit when the matching hash nibble is >= 8.
+  let out = '0x';
+  for (let i = 0; i < 40; i++) {
+    out += parseInt(hex[i], 16) >= 8 ? a[i].toUpperCase() : a[i];
+  }
+  return out;
+}
 
 const BENCH_MS = 30_000;
 const STALL_MS = 20_000;
@@ -255,15 +279,15 @@ export class RpcPool {
   }
 
   async call(to, data, block = 'latest') {
-    return this.request('eth_call', [{ to, data }, block]);
+    return this.request('eth_call', [{ to: toChecksum(to), data }, block]);
   }
 
   async getCode(address, block = 'latest') {
-    return this.request('eth_getCode', [address, block]);
+    return this.request('eth_getCode', [toChecksum(address), block]);
   }
 
   async getTransactionCount(address, tag = 'pending') {
-    return Number(await this.request('eth_getTransactionCount', [address, tag]));
+    return Number(await this.request('eth_getTransactionCount', [toChecksum(address), tag]));
   }
 
   async gasPrice() {
@@ -271,11 +295,21 @@ export class RpcPool {
   }
 
   async estimateGas(tx) {
-    // BigInt is not JSON-serialisable: a raw 0n value field makes JSON.stringify
-    // throw "Do not know how to serialize a BigInt". Hex-encode numerics first.
+    // BigInt is not JSON-serialisable, so hex-encode numerics first.
+    // Addresses are ALSO checksummed: some nodes (Robinhood testnet included)
+    // run a Go JSON decoder that rejects lowercase hex for common.Address, so an
+    // all-lowercase `to` fails with "-32602: cannot unmarshal hex string". An
+    // odd-length address string fails the same way for a different reason.
     const payload = {};
     for (const [k, v] of Object.entries(tx)) {
       if (typeof v === 'bigint') payload[k] = '0x' + v.toString(16);
+      // Robinhood Chain (and other Go-based nodes) type chainId and nonce as
+      // hexutil.Big, so a JS NUMBER is rejected outright with
+      // "cannot unmarshal non-string into Go struct field TransactionArgs.chainId".
+      // This is not cosmetic: it made every gas estimate fail, forcing the
+      // fallback gas cap and unpayable transactions.
+      else if ((k === 'chainId' || k === 'nonce') && typeof v === 'number') payload[k] = '0x' + v.toString(16);
+      else if ((k === 'to' || k === 'from') && typeof v === 'string') payload[k] = toChecksum(v);
       else if (v && typeof v === 'object' && typeof v.toHex === 'function') payload[k] = v.toHex();
       else payload[k] = v;
     }

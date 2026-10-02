@@ -82,17 +82,23 @@ export async function mintAll({
     }
   }
 
+  // Budget gas from the REAL gas price, and only when value is 0 (a free mint).
+  // A flat 300_000-per-wallet guess over-reserves by ~10x for a simple mint and
+  // makes correctly-funded wallets look underfunded, blocking the run.
   const gasPrice = await pool.gasPrice();
-  const gasCost = (gasPrice * 300_000n * BigInt(signers.length));
+  const gasPerMint = 120_000n;
+  const perWalletGas = (gasPrice * gasPerMint * 2n) / 1n; // 2x headroom on the estimate
+  const gasCost = perWalletGas * BigInt(signers.length);
 
-  console.log(`\neach wallet also needs ~${formatUnits(gasCost / BigInt(Math.max(1, signers.length)))} gas`);
-  console.log(`total native required : ${formatUnits(perWalletWei * BigInt(signers.length) + gasCost)}`);
+  console.log(`\ngas          : ${formatUnits(gasPrice)} per gas`);
+  console.log(`each wallet   needs ~${formatUnits(perWalletGas)} for gas`);
+  console.log(`total native  : ${formatUnits(perWalletWei * BigInt(signers.length) + gasCost)}`);
 
   const value = valueOverrideEth != null ? parseUnits(String(valueOverrideEth), 18) : perWalletWei;
+  const need = value + perWalletGas;
 
   // Preflight balances so a dry run tells the truth about what will work.
   const balances = await Promise.all(signers.map((s) => s.signer.balance()));
-  const need = value + gasCost / BigInt(Math.max(1, signers.length));
   const shortList = signers.filter((s, i) => balances[i] < need);
 
   if (shortList.length) {
