@@ -355,6 +355,69 @@ Every run spends roughly 0.000011 test ETH, so a single claim covers dozens of
 runs. If the balance runs short the proof stops and tells you the exact address
 to top up instead of failing mid-way.
 
+## The scale proof — a whole fleet of wallets, unattended
+
+`npm run test:testnet` proves one mint end to end. `npm run test:scale` proves
+the thing holders actually care about: **can the toolkit mint from many wallets
+in one unattended run?**
+
+```bash
+npm run test:scale                   # 8 wallets
+PROOF_WALLETS=20 npm run test:scale  # or 20
+```
+
+It deploys `test/fixtures/MultiMint.sol` — a deliberately realistic free-mint
+drop with a per-wallet cap, an allowlist path, a paid path, pausable state, a
+cappable supply and enumerable tokens — to testnet, then:
+
+1. funds N wallets from one deployer
+2. runs the unattended auto-mint across **all** of them
+3. verifies **every single wallet** independently on chain via `balanceOf` and `ownerOf`
+4. spreads one NFT from each wallet to distinct recipients
+5. confirms the ledger blocks a duplicate fleet-wide resend
+6. flips the price and confirms the scanner follows it from chain state
+7. sells the drop out, confirms `sold-out`, then restores it for the next run
+
+Latest run, 20 wallets, live testnet:
+
+```
+PASS  new drop scans as free-live              free-live (free mint, callable now)
+PASS  price reads 0 from chain                 0 wei
+PASS  a mint shape was gas-verified            mint(uint256)
+PASS  all 20 wallets funded                    20/20
+PASS  every wallet minted, unattended          sent=20/20
+PASS  totalSupply rose by exactly the count    16 -> 36
+PASS  every wallet independently verified      20/20 own exactly 1
+PASS  ownerOf() confirms the token ids         3/3 checked
+PASS  one NFT from every wallet spread         sent=20
+PASS  all source wallets drained               20/20 empty
+PASS  re-running the spread sends nothing      sent=0
+PASS  scanner follows a live price change      price now 0.001 ETH
+PASS  a priced mint is no longer free          paid-live
+PASS  sold-out is reported as sold-out         sold-out (supply fully minted)
+PASS  supply restored for the next run         MAX_SUPPLY back to 500
+
+17 passed, 0 failed  — SCALE PROOF on Robinhood TESTNET
+```
+
+### This is how real bugs were found
+
+Building a *realistic* fixture exposed failures a one-function mock never would:
+
+| Bug | Why it mattered |
+|---|---|
+| Price getters too narrow | A drop naming its getter `freePrice()` read as "no price found", which the scanner treats as **paid** — so a genuinely free mint reported `paid-live`, and auto-mint would have tried to send value |
+| Paren-less getter names | `encodeCall('maxSupply')` throws, and `read()` swallows it to `null` — it looked like extra coverage while probing nothing |
+| Non-enumerable fixture | The toolkit **correctly refused** to spread; the fixture was missing `tokenOfOwnerByIndex` |
+| Missing ERC-165 | `detectStandard` returned `UNKNOWN` and the spread guard blocked it, again correctly |
+| Missing `safeTransferFrom` | `spread` uses `safeTransferFrom`, not `transferFrom` |
+
+Two of those five are the safety guards refusing to act on a collection they
+couldn't fully verify — exactly the behaviour you want when real NFTs are on
+the line.
+
+---
+
 ### Bugs this testing caught (and fixed)
 
 Worth listing, because they're all silent-failure bugs — the kind that look like

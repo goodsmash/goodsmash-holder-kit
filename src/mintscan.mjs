@@ -11,9 +11,9 @@ const ZERO = 0n;
 
 /** Read every gate a mint can hide behind, tolerating absent functions. */
 export async function mintState(pool, address, opts = {}) {
-  const read = async (sig) => {
+  const read = async (sig, args = []) => {
     try {
-      const hex = await pool.call(address, encodeCall(sig));
+      const hex = await pool.call(address, encodeCall(sig, args));
       // decodeUint returns null for an absent function; 0 is a real value.
       return hex && hex !== '0x' ? decodeUint(hex) : null;
     } catch {
@@ -21,14 +21,35 @@ export async function mintState(pool, address, opts = {}) {
     }
   };
 
-  const price = (await read('mintPrice()')) ?? (await read('price()')) ?? (await read('cost()'));
+  // Getter names vary widely between drops, and a miss is not neutral: with no
+  // price found the scanner assumes "paid", so a genuinely free mint that calls
+  // its getter `freePrice()` (or `publicPrice`, `mintCost`, …) reported
+  // `paid-live` and auto-mint would try to send value. Probe the names real
+  // drops actually use.
+  const price =
+    (await read('mintPrice()')) ??
+    (await read('freePrice()')) ??
+    (await read('price()')) ??
+    (await read('cost()')) ??
+    (await read('publicPrice()')) ??
+    // A getter that takes an argument needs one: encodeCall throws on a missing
+    // arg, which `read` would swallow into null — a silent dead probe.
+    (await read('mintCost(uint256)', [1]));
   const active =
     (await read('saleIsActive()')) ??
     (await read('isActive()')) ??
     (await read('saleActive()')) ??
     (await read('mintActive()'));
   const paused = (await read('paused()')) ?? (await read('isPaused()'));
-  const maxSupply = (await read('maxSupply()')) ?? (await read('MAX_SUPPLY()')) ?? (await read('collectionSize()'));
+  // Only ever probe names WITH parentheses. `selector()` keccaks the literal
+  // text, so a paren-less 'maxSupply' is a different hash — but
+  // `encodeCall('maxSupply')` throws "unsupported ABI type", and read() turns
+  // that throw into null. A paren-less entry looks like extra coverage while
+  // silently probing nothing.
+  const maxSupply =
+    (await read('maxSupply()')) ??
+    (await read('MAX_SUPPLY()')) ??
+    (await read('collectionSize()'));
   const totalMinted = (await read('totalMinted()')) ?? (await read('mintedCount()'));
   const maxPerWallet = (await read('maxPerWallet()')) ?? (await read('maxPerAddress()'));
   const maxPerTx = (await read('maxPerTx()')) ?? (await read('maxMintAmount()'));
