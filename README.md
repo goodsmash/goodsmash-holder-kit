@@ -317,51 +317,92 @@ the CLI with `HOLDER_KIT_AGENT=1` and `HOLDER_KIT_AGENT_BROADCAST=<level>`.
 
 ---
 
-## Don't want a terminal? There's a UI
+## Don't want a terminal? There's an app
 
-```bash
-npm run ui
-```
+![holder-kit home screen](docs/screenshots/home-dark.png)
 
-Then open **http://127.0.0.1:7799**.
+### Start it — double-click
 
-Everything the CLI does is in the page: set up, check, add RPCs, speed-test them,
-generate and back up wallets, find and auto-mint free NFTs, send NFTs to holders,
-and fund wallets.
+| Mac | Windows | Linux / WSL |
+|---|---|---|
+| **`Start holder-kit (Mac).command`** | **`Start holder-kit (Windows).bat`** | `./start-ui.sh` |
+
+The launcher checks you have Node.js 20+ (and opens the download page if not),
+installs dependencies the first time, starts holder-kit and opens your browser.
+Close the window to stop it. From a terminal it's just `npm run ui`.
+
+> **Mac, first time:** if macOS says the file "can't be opened", right-click it →
+> **Open** → **Open**. If you downloaded a ZIP instead of `git clone`, run
+> `chmod +x "Start holder-kit (Mac).command"` once.
+
+If port 7799 is busy the app picks the next free one and prints the link.
+
+### What's in it
+
+| Screen | What you can do |
+|---|---|
+| **Home** | One-click first-run setup, then live status: vault, wallet count, chain block, mode |
+| **Wallets** | Every address with live balances and copy buttons, generate more, write/restore an encrypted backup |
+| **Free mints** | Scan one or several collections; cards show FREE · LIVE / PAID / SOLD OUT / CLOSED from chain state; mint with one click; watch a collection and stop it any time |
+| **Send NFTs** | Spread to a holder list or ship specific token ids, with live validation (bad addresses and duplicates flagged before anything runs); see what your wallets hold |
+| **Gas** | Top every wallet up to a target from a wallet you pick |
+| **RPC speed** | Add a provider (the URL field is masked), rank endpoints by real latency, run the doctor and see failover proven |
+| **Activity** | Every command this session ran, with its full output |
+
+<p>
+<img src="docs/screenshots/mints-dark.png" width="49%" alt="Free mint scanner">
+<img src="docs/screenshots/confirm-dark.png" width="49%" alt="Live mode confirmation">
+</p>
+
+**Preview vs Live.** The switch in the top-right decides what every button
+does. In **Preview** (the default) each action is a dry run that shows its plan.
+In **Live** a red banner stays on screen, and every action shows the exact
+command and asks *Sign & send* before anything is signed.
+
+Also: light/dark/auto theme, works from phone width up to a 4K monitor,
+<kbd>1</kbd>–<kbd>7</kbd> switch screens, <kbd>⌘</kbd>/<kbd>Ctrl</kbd>+<kbd>Enter</kbd> runs a
+screen's main action, long runs stream their output live with a **Stop** button.
+
+<img src="docs/screenshots/wallets-light.png" width="66%" alt="Wallets, light theme"> <img src="docs/screenshots/phone-dark.png" width="22%" alt="Phone layout">
+
+### Safety of the app itself
 
 **It runs on your machine only.** It binds to `127.0.0.1`, so nothing on your
-network — phone, other laptop, the internet — can reach it. There is no
-account, no telemetry, and no outbound request of any kind.
+network — phone, other laptop, the internet — can reach it. No account, no
+telemetry, no outbound request from the page.
 
-Two things worth knowing:
+- **The page contains no wallet logic.** Every button runs the same CLI the
+  test suites prove, so the app can't drift from what's verified.
+- **Your password** (only needed if `vault/PASSWORD.txt` isn't there) lives in
+  the tab's memory, is handed to one CLI process per command, and is never
+  written to disk, logged, or sent back to the browser.
+- **One value-moving command at a time.** A second send while one is running is
+  refused, so two runs can never race for the same wallet nonce.
+- **Token names are shown as text, never HTML** — a collection can't inject
+  script into the page by naming itself `<img onerror=…>`.
+- Per-launch token on every request, `Host` allow-list (DNS-rebinding),
+  same-origin check, JSON-only requests, strict CSP, no framing, and
+  `wallet remove` / `change-password` kept out of the browser.
 
-- **The page contains no wallet logic.** Every button shells out to the same
-  CLI the test suites prove, so the UI can't drift from what's verified.
-- **Your password is piped to the local process for one command and then
-  forgotten** — never written to disk, never logged, never sent back to the
-  browser. Leave it blank if `setup` saved `vault/PASSWORD.txt`. `setup`
-  ignores the field entirely.
-- **Every button is a dry run** until you tick *Send for real*, and then it
-  asks you to confirm in the browser first.
-
-The UI only allows an explicit list of commands, refuses cross-origin requests,
-requires a per-launch token embedded in the page, rejects any `Host` other than
-`127.0.0.1`/`localhost` (DNS-rebinding), sends a strict CSP, and keeps
-`wallet remove`/`change-password` out of the browser — `test/ui-tests.mjs`
-asserts all of that, including that the port really is unreachable from your
-LAN address.
+`test/ui-tests.mjs` asserts the security boundary; `test/ui-e2e.mjs` clicks
+through every screen in a real browser against a real local chain and checks
+each send **on chain**.
 
 ---
 
 ## Tests — both suites are real
 
 ```bash
-npm test                 # 72 + 25 + 47: anvil suite, UI boundary, hardening regressions
-npm run test:hardening   # 47 tests: the 1.1 hardening fixes, on local anvil
-npm run test:ui          # 25 tests: the local UI's security boundary
+npm test                 # 72 + 39 + 51: anvil suite, UI boundary, hardening regressions
+npm run test:hardening   # 51 tests: the hardening fixes, on local anvil
+npm run test:ui          # 39 tests: the local app's security boundary, streaming, cancel, locking
+npm run test:e2e         # 60 tests: real browser, every screen, every send verified on chain
 npm run test:testnet     # 23 tests: LIVE Robinhood Chain TESTNET (46630)
 npm run verify           # everything, in order
 ```
+
+`test:e2e` needs Playwright (`npm i -D playwright && npx playwright install chromium`)
+and runs the whole flow as many times as you like: `E2E_ROUNDS=3 npm run test:e2e`.
 
 `npm test` needs [Foundry](https://getfoundry.sh) (`anvil`, `forge`, `cast`) on your PATH.
 
@@ -531,6 +572,16 @@ couldn't fully verify — exactly the behaviour you want when real NFTs are on
 the line.
 
 ---
+
+### Fixed in 1.2 (found by the browser end-to-end test)
+
+| Bug | What could happen | Fix |
+|---|---|---|
+| `spread` dealt with `(jobs.length + i)` — counting every token twice | With an **even** number of recipients, every NFT went to only half of them | Deal by global position; e2e checks each recipient's balance on chain |
+| `decodeString` skipped a word | Every collection name read as empty (short names) or garbage with NUL bytes (long names) | Correct ABI offset; `bytes32` names (old tokens) also decode |
+| Status / wallet loads could finish out of order | Switching chain right after opening the app showed every balance as "unknown" | Only the newest request may paint |
+| The output panel covered the last buttons on a page | Buttons unreachable without collapsing it | Page reserves the panel's height |
+| Tiny prices rounded to `0 ETH` | A 1000-wei mint looked free | wei / gwei shown for small amounts |
 
 ### Fixed in 1.1 (hardening pass)
 

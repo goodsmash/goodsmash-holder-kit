@@ -14,7 +14,7 @@ import { RpcPool, isRequestError } from '../src/rpc.mjs';
 import { Signer } from '../src/signer.mjs';
 import { Vault } from '../src/vault.mjs';
 import { ship } from '../src/distribute.mjs';
-import { encodeCall, decodeUint } from '../src/abi.mjs';
+import { encodeCall, decodeUint, decodeString } from '../src/abi.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const CLI = join(ROOT, 'bin', 'holder-kit.mjs');
@@ -310,6 +310,18 @@ async function suite() {
   ok('a lost broadcast response is not reported as a failure', typeof sendRes === 'object' && !!sendRes?.receipt, String(typeof sendRes === 'string' ? sendRes : '').slice(0, 80));
   ok('…and the value moved exactly once', after - before === 12345n, `${after - before}`);
   flaky.close();
+
+  // ------------------------------------------------------------ ABI strings
+  section('token names decode correctly (they all came back empty or garbled)');
+  const encStr = (str) => {
+    const b = Buffer.from(str);
+    const w = (n) => n.toString(16).padStart(64, '0');
+    return '0x' + w(32) + w(b.length) + b.toString('hex').padEnd(Math.ceil(b.length / 32) * 64, '0');
+  };
+  ok('short name decodes', decodeString(encStr('Mock RIGS')) === 'Mock RIGS');
+  ok('name longer than 32 bytes decodes without NUL garbage', decodeString(encStr('A very long collection name, over 32 bytes')) === 'A very long collection name, over 32 bytes');
+  ok('unicode survives', decodeString(encStr('Ünïcødé 🚀')) === 'Ünïcødé 🚀');
+  ok('bytes32-style names (old tokens) decode', decodeString('0x4d616b6572' + '0'.repeat(54)) === 'Maker');
 
   // ------------------------------------------------------------ ship parsing
   section('ship refuses a half-understood plan');

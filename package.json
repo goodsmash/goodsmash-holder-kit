@@ -1,6 +1,6 @@
 {
   "name": "goodsmash-holder-kit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Self-custodied holder toolkit: encrypted key vault, multi-RPC failover, NFT spread/ship, mint farming and holder bot builder. Keys never leave your machine.",
   "type": "module",
   "license": "MIT",
@@ -16,12 +16,13 @@
     "test:testnet": "node test/testnet-proof.mjs",
     "test:scale": "node test/testnet-scale-proof.mjs && node test/mintscan-regression.mjs",
     "test:mainnet": "node test/mainnet-read-proof.mjs",
-    "verify": "node test/run-tests.mjs && node test/ui-tests.mjs && node test/hardening-tests.mjs && node test/testnet-proof.mjs && node test/testnet-scale-proof.mjs",
+    "verify": "node test/run-tests.mjs && node test/ui-tests.mjs && node test/hardening-tests.mjs && node test/ui-e2e.mjs && node test/testnet-proof.mjs && node test/testnet-scale-proof.mjs",
     "doctor": "node bin/holder-kit.mjs doctor",
-    "ui": "node src/server.mjs",
+    "ui": "node src/server.mjs --open",
     "test:hardening": "node test/hardening-tests.mjs",
     "hermes:install": "node scripts/install-hermes.mjs",
-    "hermes:uninstall": "node scripts/install-hermes.mjs --uninstall"
+    "hermes:uninstall": "node scripts/install-hermes.mjs --uninstall",
+    "test:e2e": "node test/ui-e2e.mjs"
   },
   "dependencies": {
     "viem": "^2.57.2"

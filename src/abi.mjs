@@ -111,12 +111,20 @@ export function decodeUint(hex) {
 
 export function decodeString(hex) {
   if (!hex || hex === '0x') return '';
+  const clean = (str) => str.replace(/\u0000+$/g, '').replace(/[\u0000-\u001f\u007f]/g, '');
   try {
     const body = hex.replace(/^0x/, '');
+    // Some older tokens (MKR, SAI…) return bytes32, not string: one 32-byte word.
+    if (body.length === 64) return clean(Buffer.from(body, 'hex').toString('utf8'));
     const offset = Number(BigInt('0x' + body.slice(0, 64)));
     const len = Number(BigInt('0x' + body.slice(offset * 2, offset * 2 + 64)));
-    const bytes = body.slice(offset * 2 + 128, offset * 2 + 128 + len * 2);
-    return Buffer.from(bytes, 'hex').toString('utf8');
+    if (!Number.isSafeInteger(len) || len > 4096) return '';
+    // The string bytes start right AFTER the 32-byte length word. This used to
+    // skip a second word, so every name came back empty (short names) or as
+    // garbage with trailing NULs (names over 32 bytes).
+    const start = offset * 2 + 64;
+    const bytes = body.slice(start, start + len * 2);
+    return clean(Buffer.from(bytes, 'hex').toString('utf8'));
   } catch {
     return '';
   }

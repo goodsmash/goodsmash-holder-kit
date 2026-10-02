@@ -47,10 +47,13 @@ export async function spread({ pool, chainSpec, signers, collection, recipients,
           `Use the collection's own Transfer logs, or Blockscout, to find token ids.`
       );
     }
-    inv.tokens.forEach((tokenId, i) => {
-      const to = recipients[(jobs.length + i) % recipients.length];
+    for (const tokenId of inv.tokens) {
+      // jobs.length is the global deal position. The old `(jobs.length + i)`
+      // counted every token twice (push already grows jobs.length), so with an
+      // EVEN number of recipients every NFT went to only half of them.
+      const to = recipients[jobs.length % recipients.length];
       jobs.push({ from: entry.address, signer, tokenId: String(tokenId), to });
-    });
+    }
   }
 
   console.log(`\nplan (${jobs.length} transfer${jobs.length === 1 ? '' : 's'}):`);

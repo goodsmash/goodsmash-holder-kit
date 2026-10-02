@@ -32,11 +32,14 @@ async function timeEndpoint(ep) {
 }
 
 export async function doctor(chainKey, opts = {}) {
+  // opts.json: stay silent and return a structured report (the UI and agents
+  // render it). Every console.log below goes through `log`.
+  const log = opts.json ? () => {} : (...a) => console.log(...a);
   const spec = resolveChain(chainKey, opts);
-  console.log(`\n== holder-kit doctor ==`);
-  console.log(`chain      : ${spec.name} (id ${spec.id})${spec.testnet ? '  [TESTNET]' : ''}`);
-  console.log(`explorer   : ${spec.explorer}`);
-  console.log(`endpoints  : ${spec.endpoints.length}\n`);
+  log(`\n== holder-kit doctor ==`);
+  log(`chain      : ${spec.name} (id ${spec.id})${spec.testnet ? '  [TESTNET]' : ''}`);
+  log(`explorer   : ${spec.explorer}`);
+  log(`endpoints  : ${spec.endpoints.length}\n`);
 
   const results = [];
   for (const ep of spec.endpoints) {
@@ -44,20 +47,25 @@ export async function doctor(chainKey, opts = {}) {
     results.push({ ep, r });
     const mark = r.ok ? 'OK  ' : 'FAIL';
     const chainNote = r.ok && r.chainId !== spec.id ? `  !! chainId mismatch (got ${r.chainId})` : '';
-    console.log(`  ${mark} ${ep.provider.padEnd(20)} ${String(r.ms).padStart(6)}ms  ${r.error || ''}${chainNote}`);
-    console.log(`       ${redactUrl(ep.url)}`);
+    log(`  ${mark} ${ep.provider.padEnd(20)} ${String(r.ms).padStart(6)}ms  ${r.error || ''}${chainNote}`);
+    log(`       ${redactUrl(ep.url)}`);
   }
 
   const pool = new RpcPool(spec.endpoints, spec.id);
-  console.log(`\n-- pooled reads through the failover layer --`);
+  const pooled = [];
+  let failover = { tested: false, ok: false, detail: '' };
+  const collectionsOut = [];
+  log(`\n-- pooled reads through the failover layer --`);
   let healthy = true;
   for (const probe of PROBE_CALLS) {
     try {
       const out = await pool.request(probe.method);
-      console.log(`  OK   ${probe.label.padEnd(14)} ${String(out).slice(0, 70)}`);
+      pooled.push({ label: probe.label, ok: true, value: String(out) });
+      log(`  OK   ${probe.label.padEnd(14)} ${String(out).slice(0, 70)}`);
     } catch (e) {
       healthy = false;
-      console.log(`  FAIL ${probe.label.padEnd(14)} ${e.message.slice(0, 70)}`);
+      pooled.push({ label: probe.label, ok: false, error: e.message.slice(0, 120) });
+      log(`  FAIL ${probe.label.padEnd(14)} ${e.message.slice(0, 70)}`);
     }
   }
 
@@ -71,42 +79,68 @@ export async function doctor(chainKey, opts = {}) {
     );
     try {
       const bn = await probePool.request('eth_blockNumber');
-      console.log(`  OK   failover test   recovered to block ${bn} after the primary failed (${probePool.stats.failoverEvents} failover)`);
+      failover = { tested: true, ok: true, detail: `recovered to block ${Number(bn)} after the primary failed` };
+      log(`  OK   failover test   recovered to block ${bn} after the primary failed (${probePool.stats.failoverEvents} failover)`);
     } catch (e) {
       healthy = false;
-      console.log(`  FAIL failover test   ${e.message.slice(0, 60)}`);
+      failover = { tested: true, ok: false, detail: e.message.slice(0, 120) };
+      log(`  FAIL failover test   ${e.message.slice(0, 60)}`);
     }
   } else if (spec.endpoints.length === 1) {
-    console.log(`  SKIP failover test   only one endpoint configured`);
+    failover = { tested: false, ok: false, detail: 'only one endpoint configured — add a second so one rate limit cannot stop you' };
+    log(`  SKIP failover test   only one endpoint configured`);
     healthy = false;
   }
 
   const st = pool.status();
-  console.log(`\n-- summary --`);
-  console.log(`  usable endpoints : ${results.filter((x) => x.r.ok).length}/${spec.endpoints.length}`);
-  console.log(`  requests         : ${st.requests}   retries: ${st.retries}   failovers: ${st.failovers}`);
+  log(`\n-- summary --`);
+  log(`  usable endpoints : ${results.filter((x) => x.r.ok).length}/${spec.endpoints.length}`);
+  log(`  requests         : ${st.requests}   retries: ${st.retries}   failovers: ${st.failovers}`);
 
   if (results.filter((x) => x.r.ok).length < 2) {
-    console.log(`\n  ADVICE: you have fewer than 2 working endpoints, so a rate limit will stop you.`);
-    console.log(`  Add a free keyed provider — this is the single highest-value fix:`);
-    console.log(`    cp config/endpoints.example.json config/endpoints.json`);
-    console.log(`    # then paste your URL from https://app.quicknode.com (free tier available)`);
+    log(`\n  ADVICE: you have fewer than 2 working endpoints, so a rate limit will stop you.`);
+    log(`  Add a free keyed provider — this is the single highest-value fix:`);
+    log(`    cp config/endpoints.example.json config/endpoints.json`);
+    log(`    # then paste your URL from https://app.quicknode.com (free tier available)`);
   }
 
   const collections = Object.entries(spec.collections || {});
   if (collections.length) {
-    console.log(`\n-- collections --`);
+    log(`\n-- collections --`);
     for (const [name, c] of collections) {
       try {
         const code = await pool.getCode(c.address);
         const live = code && code !== '0x';
-        console.log(`  ${live ? 'OK  ' : 'DEAD'} ${name.padEnd(10)} ${c.address}  ${c.label || ''}`);
+        collectionsOut.push({ name, address: c.address, label: c.label || '', live: !!live });
+        log(`  ${live ? 'OK  ' : 'DEAD'} ${name.padEnd(10)} ${c.address}  ${c.label || ''}`);
       } catch (e) {
-        console.log(`  FAIL ${name.padEnd(10)} ${c.address}  ${e.message.slice(0, 40)}`);
+        collectionsOut.push({ name, address: c.address, label: c.label || '', live: null, error: e.message.slice(0, 80) });
+        log(`  FAIL ${name.padEnd(10)} ${c.address}  ${e.message.slice(0, 40)}`);
       }
     }
   }
 
-  console.log('');
-  return { healthy, spec, status: st };
+  log('');
+  const report = {
+    chain: spec.key,
+    chainName: spec.name,
+    chainId: spec.id,
+    testnet: !!spec.testnet,
+    healthy,
+    usable: results.filter((x) => x.r.ok).length,
+    total: spec.endpoints.length,
+    endpoints: results.map(({ ep, r }) => ({
+      provider: ep.provider,
+      tier: ep.tier || 'public',
+      url: redactUrl(ep.url),
+      ok: r.ok && r.chainId === spec.id,
+      ms: r.ms,
+      chainId: r.chainId ?? null,
+      error: r.error || (r.ok && r.chainId !== spec.id ? `wrong chain (got ${r.chainId})` : null),
+    })),
+    pooled,
+    failover,
+    collections: collectionsOut,
+  };
+  return { healthy, spec, status: st, report };
 }

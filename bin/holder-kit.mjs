@@ -25,7 +25,7 @@ import { quickSetup, selfCheck } from '../src/setup.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VAULT_PATH = process.env.HOLDER_KIT_VAULT || join(ROOT, 'vault', 'holder.vault');
-const LEDGER_PATH = join(ROOT, 'runs', 'ledger.jsonl');
+const LEDGER_PATH = process.env.HOLDER_KIT_LEDGER || join(ROOT, 'runs', 'ledger.jsonl');
 
 // --json: machine-readable output for agents (Hermes) and scripts. Colour codes
 // are disabled and the commands that support it print exactly one JSON object.
@@ -292,8 +292,12 @@ async function runCheck(argv) {
   const ready = ok;
   process.exitCode = ready ? 0 : 1;
   if (JSON_MODE) {
+    const pw = findPassword(VAULT_PATH);
     emitJson({
       ok: ready,
+      vaultExists: existsSync(VAULT_PATH),
+      vaultPath: VAULT_PATH,
+      passwordSource: pw.source || (process.env.HOLDER_KIT_PASSWORD ? 'HOLDER_KIT_PASSWORD' : null),
       chain: chainKey,
       agentMode: isAgentMode(),
       agentBroadcast: isAgentMode() ? agentBroadcastLevel() : null,
@@ -326,7 +330,7 @@ async function runBench(argv) {
   const runs = Number(flag(argv, 'runs', 3));
   const { spec } = await context(argv);
 
-  console.log(`\n${C.b('RPC speed test')} — ${spec.name}, ${runs} round(s) each\n`);
+  if (!JSON_MODE) console.log(`\n${C.b('RPC speed test')} — ${spec.name}, ${runs} round(s) each\n`);
     const rows = [];
     for (const ep of spec.endpoints) {
       const times = [];
@@ -370,6 +374,11 @@ async function runBench(argv) {
       if (a.ok !== b.ok) return a.ok ? -1 : 1;
       return (a.avg ?? 1e9) - (b.avg ?? 1e9);
     });
+    if (JSON_MODE) {
+      emitJson({ ok: true, chain: spec.key, chainId: spec.id, runs, endpoints: rows, working: rows.filter((r) => r.ok).length });
+      process.exitCode = rows.some((r) => r.ok) ? 0 : 1;
+      return;
+    }
     for (const r of rows) {
       const speed = !r.ok ? C.r(r.avg == null ? 'unreachable' : 'wrong chain') : r.avg < 150 ? C.g(`${r.avg}ms  fast`) : r.avg < 500 ? `${r.avg}ms  ok` : C.y(`${r.avg}ms  slow`);
       const tier = r.tier === 'keyed' ? C.c('keyed ') : C.dim('public ');
@@ -401,7 +410,7 @@ function addEndpoint(url, name, chainKey) {
     process.exitCode = 1;
     return;
   }
-  const file = join(ROOT, 'config', 'endpoints.json');
+  const file = process.env.HOLDER_KIT_ENDPOINTS || join(ROOT, 'config', 'endpoints.json');
   let cfg = {};
   if (existsSync(file)) {
     try {
@@ -506,7 +515,7 @@ async function main() {
 
     case 'chains': {
       if (JSON_MODE) {
-        emitJson({ ok: true, chains: listChains().map((c) => ({ key: c.key, id: c.id, name: c.name, testnet: !!c.testnet, endpoints: c.endpoints.length })) });
+        emitJson({ ok: true, chains: listChains().map((c) => ({ key: c.key, id: c.id, name: c.name, testnet: !!c.testnet, symbol: c.nativeSymbol || 'ETH', explorer: c.explorer || null, endpoints: c.endpoints.length })) });
         break;
       }
       for (const c of listChains()) {
@@ -532,8 +541,9 @@ async function main() {
 
     case 'doctor': {
       const chainKey = flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet');
-      const res = await doctor(chainKey, { rpc: flag(argv, 'rpc', false) || undefined });
+      const res = await doctor(chainKey, { rpc: flag(argv, 'rpc', false) || undefined, json: JSON_MODE });
       process.exitCode = res.healthy ? 0 : 1;
+      if (JSON_MODE) emitJson({ ok: true, ...res.report });
       break;
     }
 
@@ -543,9 +553,18 @@ async function main() {
       if (sub === 'list') {
         const v = await openVault();
         const { spec, pool } = await context(argv);
-        const bals = await nativeBalances(pool, v.wallets.map((w) => w.address));
+        // Listing addresses must not depend on the network: if every RPC is
+        // down, still show the wallets and say balances are unknown.
+        let bals;
+        let balanceError = null;
+        try {
+          bals = await nativeBalances(pool, v.wallets.map((w) => w.address));
+        } catch (e) {
+          balanceError = e.message.slice(0, 160);
+          bals = v.wallets.map((w) => ({ address: w.address, wei: null }));
+        }
         if (JSON_MODE) {
-          emitJson({ ok: true, chain: spec.key, wallets: v.wallets.map((w, i) => ({ index: i, address: w.address, balanceWei: bals[i].wei, balance: formatUnits(bals[i].wei), note: w.note || '' })) });
+          emitJson({ ok: true, chain: spec.key, symbol: spec.nativeSymbol || 'ETH', balanceError, wallets: v.wallets.map((w, i) => ({ index: i, address: w.address, balanceWei: bals[i].wei, balance: bals[i].wei == null ? null : formatUnits(bals[i].wei), note: w.note || '' })) });
           v.lock();
           break;
         }
@@ -872,7 +891,12 @@ async function main() {
         const collection = flag(argv, 'collection');
         const planFile = flag(argv, 'plan');
         if (!collection || !planFile) throw new Error('usage: holder-kit ship --collection <addr> --plan <file> [--auto]');
-        const plan = readFileSync(resolve(planFile), 'utf8').split('\n');
+        // --plan is a file path, or (from the UI) the plan text itself: lines
+        // separated by newlines or semicolons.
+        const planPath = resolve(String(planFile));
+        const plan = existsSync(planPath) && !String(planFile).includes('\n')
+          ? readFileSync(planPath, 'utf8').split('\n')
+          : String(planFile).split(/[\n;]+/);
         const res = await ship({ pool, chainSpec: spec, signers, collection, plan, dryRun, ledger, argv });
         console.log(res.sent ? C.g(`\nsent ${res.sent}`) : C.dim(`\nplanned ${res.planned}, sent 0`));
       }
