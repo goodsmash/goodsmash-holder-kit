@@ -355,6 +355,49 @@ Every run spends roughly 0.000011 test ETH, so a single claim covers dozens of
 runs. If the balance runs short the proof stops and tells you the exact address
 to top up instead of failing mid-way.
 
+## Proving it against a REAL live mainnet collection — read-only
+
+`npm run test:mainnet` points the scanner at a real, already-open mainnet drop
+and verifies every field is read from chain. It sends nothing, signs nothing,
+and costs nothing:
+
+```bash
+npm run test:mainnet                              # the default collection
+node test/mainnet-read-proof.mjs 0x<address>      # or any collection you like
+```
+
+Against `0x2676cbd9bba27864acf3d110fa3214f5c86fceaa` on Robinhood mainnet
+(17,776 bytes of live bytecode):
+
+```
+PASS  contract has live bytecode                  17776 bytes
+PASS  connected to the right chain                chainId 4663
+PASS  standard detected from ERC-165              ERC721
+PASS  maxSupply() read from chain                 20000
+PASS  totalSupply() read from chain               202 of 20000 minted
+PASS  maxPerWallet() read from chain              2 per wallet
+PASS  mintPrice() read from chain                 0.000368324125230204 ETH
+PASS  minted never exceeds the cap                202 <= 20000
+PASS  collection is NOT sold out                  19798 left
+PASS  scanner found a callable mint shape         mint(uint256)
+PASS  scanner read the price from chain           368324125230204 wei
+PASS  verdict agrees with the price on chain      reported paid-live, not free
+PASS  isFree never claims a priced mint is free   isFree=false
+
+13 passed, 0 failed  — READ-ONLY, nothing was sent
+```
+
+**The assertion that matters most is the last two.** This collection had 19,798
+of 20,000 supply left — every naive check says "mintable" — but it charges
+0.000368 ETH. A scanner that inferred "free" from remaining supply would send
+real value to a paid mint. This one reads the price and says `paid-live`.
+
+That is why no mainnet mint is broadcast by any test in this repo. Proving a
+*paid* mainnet mint costs real money from a real wallet, and that is the
+holder's decision, not the toolkit's.
+
+---
+
 ## The scale proof — a whole fleet of wallets, unattended
 
 `npm run test:testnet` proves one mint end to end. `npm run test:scale` proves
