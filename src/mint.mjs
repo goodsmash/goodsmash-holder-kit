@@ -5,7 +5,7 @@
 // when the numbers say it will revert.
 import { encodeCall, decodeUint, parseUnits, formatUnits } from './abi.mjs';
 import { probeMint, detectStandard } from './inventory.mjs';
-import { gateBroadcast } from './safety.mjs';
+import { gateBroadcast, assertWithinLimits, assertAgentMayBroadcast } from './safety.mjs';
 
 export async function mintReport(pool, collection) {
   const info = await probeMint(pool, collection);
@@ -62,7 +62,6 @@ export async function mintAll({
 
   const price = info.mintPriceWei ?? 0n;
   const perWalletWei = price * BigInt(quantity);
-  const hasValueArg = chosen.includes('uint256') || chosen === 'mint()';
 
   console.log(`\ncollection : ${collection}`);
   console.log(`function   : ${chosen}(${quantity})`);
@@ -97,6 +96,15 @@ export async function mintAll({
   const value = valueOverrideEth != null ? parseUnits(String(valueOverrideEth), 18) : perWalletWei;
   const need = value + perWalletGas;
 
+  // Ceilings apply to every mint that carries value — dry run included, so the
+  // holder sees the refusal before they ever try to execute.
+  const perTxEth = Number(formatUnits(value));
+  assertWithinLimits({
+    perTxEth,
+    perRunEth: perTxEth * signers.length,
+    override: (argv || []).includes('--override-ceilings'),
+  });
+
   // Preflight balances so a dry run tells the truth about what will work.
   const balances = await Promise.all(signers.map((s) => s.signer.balance()));
   const shortList = signers.filter((s, i) => balances[i] < need);
@@ -120,6 +128,8 @@ export async function mintAll({
     return { planned: signers.length, sent: 0, underfunded: shortList.length };
   }
 
+  assertAgentMayBroadcast(value === 0n ? 'free-mint' : 'paid-mint');
+
   if (shortList.length && !argv.includes('--skip-underfunded')) {
     throw new Error(
       `${shortList.length} wallet(s) underfunded. Fund them with \`fund\`, or pass --skip-underfunded to mint only what can succeed.`
@@ -127,8 +137,9 @@ export async function mintAll({
   }
 
   let sent = 0;
-  for (const s of signers) {
-    const i = signers.indexOf(s);
+  let failed = 0;
+  for (let i = 0; i < signers.length; i++) {
+    const s = signers[i];
     if (balances[i] < need) {
       console.log(`   SKIP ${s.signer.address} — underfunded`);
       continue;
@@ -138,21 +149,16 @@ export async function mintAll({
       if (chosen === 'mint()') data = encodeCall('mint()', []);
       else if (chosen === 'mint(address,uint256)') data = encodeCall('mint(address,uint256)', [s.signer.address, quantity]);
       else if (chosen === 'mint(uint256)') data = encodeCall('mint(uint256)', [quantity]);
-      else {
-        const name = chosen.slice(0, chosen.indexOf('('));
-        data = encodeCall(chosen, [quantity]);
-        void name;
-      }
-      if (!hasValueArg && value > 0n) value = 0n;
-      const res = await s.signer.send({ to: collection, data, value });
+      else data = encodeCall(chosen, [quantity]);
+      await s.signer.send({ to: collection, data, value });
       sent++;
-      void res;
     } catch (e) {
+      failed++;
       console.log(`   FAILED ${s.signer.address}: ${e.message.slice(0, 90)}`);
     }
   }
-  console.log(`\ndone: ${sent}/${signers.length} minted`);
-  return { planned: signers.length, sent };
+  console.log(`\ndone: ${sent}/${signers.length} minted, ${failed} failed`);
+  return { planned: signers.length, sent, failed };
 }
 
 export { decodeUint };

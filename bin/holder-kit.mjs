@@ -19,21 +19,28 @@ import { spread, ship, fund } from '../src/distribute.mjs';
 import { mintAll, mintReport } from '../src/mint.mjs';
 import { scanForMints, printMintScan, watchAndMint } from '../src/mintscan.mjs';
 import { formatUnits } from '../src/abi.mjs';
-import { RunLedger, isDryRun, isAuto, gateBroadcast, Aborted, dedupeAddresses, assertChainExpectation } from '../src/safety.mjs';
+import { RunLedger, isDryRun, isAuto, Aborted, assertChainExpectation, isAgentMode, agentBroadcastLevel, assertAgentMayRun } from '../src/safety.mjs';
+import { findPassword, passwordFileCandidates, PASSWORD_FILE_NAME } from '../src/password.mjs';
 import { quickSetup, selfCheck } from '../src/setup.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const VAULT_PATH = process.env.HOLDER_KIT_VAULT || join(ROOT, 'vault', 'holder.vault');
 const LEDGER_PATH = join(ROOT, 'runs', 'ledger.jsonl');
 
-const C = {
-  dim: (s) => `\x1b[2m${s}\x1b[0m`,
-  b: (s) => `\x1b[1m${s}\x1b[0m`,
-  g: (s) => `\x1b[32m${s}\x1b[0m`,
-  y: (s) => `\x1b[33m${s}\x1b[0m`,
-  r: (s) => `\x1b[31m${s}\x1b[0m`,
-  c: (s) => `\x1b[36m${s}\x1b[0m`,
-};
+// --json: machine-readable output for agents (Hermes) and scripts. Colour codes
+// are disabled and the commands that support it print exactly one JSON object.
+const JSON_MODE = process.argv.includes('--json');
+const NO_COLOR = JSON_MODE || !!process.env.NO_COLOR || !process.stdout.isTTY;
+const paint = (code) => (s) => (NO_COLOR ? String(s) : `\x1b[${code}m${s}\x1b[0m`);
+
+/** Print one JSON document; BigInts become decimal strings. */
+function emitJson(obj) {
+  process.stdout.write(
+    JSON.stringify(obj, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2) + '\n'
+  );
+}
+
+const C = { dim: paint(2), b: paint(1), g: paint(32), y: paint(33), r: paint(31), c: paint(36) };
 
 function flag(argv, name, fallback = undefined) {
   const i = argv.indexOf(`--${name}`);
@@ -52,7 +59,9 @@ function flag(argv, name, fallback = undefined) {
 function addressList(argv) {
   const out = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] !== '--address') continue;
+    // --collection is accepted as a synonym: the UI and the printed hint both
+    // used it, and `auto --collection 0x…` silently scanned EVERY collection.
+    if (argv[i] !== '--address' && argv[i] !== '--collection') continue;
     const next = argv[i + 1];
     if (next && !next.startsWith('--')) {
       out.push(next);
@@ -80,17 +89,28 @@ function listFiles(pathOrList) {
   return out;
 }
 
+/**
+ * Open (or, with create, make) the vault using the shared password order:
+ * HOLDER_KIT_PASSWORD -> HOLDER_KIT_PASSWORD_FILE -> vault/PASSWORD.txt -> prompt.
+ * That is what makes "setup once, never type a password again" actually true:
+ * previously setup saved a password file that no other command ever read.
+ */
 async function openVault({ create = false } = {}) {
+  const { password } = findPassword(VAULT_PATH);
   if (!existsSync(VAULT_PATH)) {
     if (!create) {
-      throw new Error(
-        `no vault at ${VAULT_PATH}\nCreate one with:  holder-kit init`
-      );
+      throw new Error(`no vault at ${VAULT_PATH}\nCreate one with:  node bin/holder-kit.mjs setup`);
     }
     mkdirSync(dirname(VAULT_PATH), { recursive: true });
-    return Vault.create(VAULT_PATH, { label: 'holder-kit vault' });
+    return Vault.create(VAULT_PATH, { label: 'holder-kit vault', password: password || undefined });
   }
-  return Vault.open(VAULT_PATH);
+  if (!password && !process.stdin.isTTY) {
+    throw new Error(
+      `vault is locked and there is no terminal to ask for the password.\n` +
+        `  Expected one of: HOLDER_KIT_PASSWORD, HOLDER_KIT_PASSWORD_FILE, or ${join(dirname(VAULT_PATH), PASSWORD_FILE_NAME)}`
+    );
+  }
+  return Vault.open(VAULT_PATH, { password: password || undefined });
 }
 
 async function context(argv) {
@@ -124,20 +144,30 @@ ${C.b('CHECKS')}
   wallet backup <path>      Encrypted copy to a second location
   wallet new <count>        Generate more wallets
   wallet from-seed          Import a recovery phrase (hidden input)
+  wallet restore <file>     Merge wallets back from an encrypted backup
+  wallet change-password    Re-encrypt the vault with a new password
   chains                    Supported chains
+  agents                    What an AI agent (Hermes) is allowed to do
+
+  ${C.dim('--json on check / find / scan / wallet list / chains prints one JSON object')}
 
 ${C.dim('Keys are encrypted on your machine and never leave it. Nothing is sent to us.')}
 ${C.dim('Every action is a dry run until you add --auto or --execute.')}
 ${C.dim('HOLDER_KIT_AUTO=1 makes every command automatic.')}
 `;
 
-const AGENT_AUTH = `
-${C.b('Hermes / AI agent authorisation')}
-${C.dim('An agent may run, unattended: setup, check, doctor, chains, endpoints,')}
-${C.dim('wallet list/new/from-seed/backup, scan, find, mint-report, and the dry-run')}
-${C.dim('form of every action. Agents MUST NOT: read or print key material, pass')}
-${C.dim('--auto/--execute, override ceilings, or broadcast on an unnamed chain.')}
-Full contract: agents/AGENTS.md  ·  machine rules: agents/SKILL.md
+const AGENT_AUTH = () => `
+${C.b('Hermes / AI agent policy')}   agent mode: ${isAgentMode() ? C.g('ON') : C.y('off')}${isAgentMode() ? `   broadcast: ${C.c(agentBroadcastLevel())}` : ''}
+
+${C.dim('Agent mode is HOLDER_KIT_AGENT=1 (the Hermes wrapper sets it). The HOLDER chooses')}
+${C.dim('what the agent may sign:  npm run hermes:install -- --broadcast <level>')}
+  none        ${C.dim('(default) reads + dry runs only — nothing is ever signed')}
+  free-mints  ${C.dim('auto / watch / mint may broadcast zero-value mints only')}
+  all         ${C.dim('every command may broadcast; ceilings still apply')}
+
+${C.dim('Always refused in agent mode: --override-ceilings, wallet remove,')}
+${C.dim('wallet change-password, wallet restore. Use --json for machine-readable output.')}
+Full contract: agents/AGENTS.md  ·  skill: agents/SKILL.md
 `;
 
 
@@ -161,12 +191,18 @@ async function runSetup(rest) {
   const vaultDir = dirname(VAULT_PATH);
   mkdirSync(vaultDir, { recursive: true });
 
+  if (args.includes('--password')) {
+    // argv lands in shell history and is visible to every process via `ps`.
+    console.error(`${C.r('setup failed')}: --password is not accepted on the command line (it leaks into shell history).`);
+    console.error(`  Use HOLDER_KIT_PASSWORD or HOLDER_KIT_PASSWORD_FILE, or let setup generate one.\n`);
+    process.exitCode = 1;
+    return;
+  }
+
   let res;
   try {
     res = await quickSetup({
       vaultPath: VAULT_PATH,
-      vaultDir,
-      password: flag(args, 'password', undefined) === true ? undefined : flag(args, 'password'),
       interactive: !!process.stdin.isTTY,
       walletCount,
     });
@@ -179,11 +215,11 @@ async function runSetup(rest) {
   for (const s of res.steps) console.log(`  ${C.g('ok')} ${s.msg}`);
 
   if (res.passwordFile) {
-    console.log(`\n  ${C.b('Your vault password is saved here:')}`);
+    console.log(`\n  ${C.b('A strong vault password was generated and saved here:')}`);
     console.log(`  ${C.c(res.passwordFile)}`);
     console.log(`  ${C.dim('Move it somewhere safe. Anyone with that file AND the vault has your keys.')}`);
-  } else if (res.passwordSource === 'HOLDER_KIT_PASSWORD') {
-    console.log(`\n  ${C.dim('using the password from HOLDER_KIT_PASSWORD')}`);
+  } else if (res.passwordSource) {
+    console.log(`\n  ${C.dim(`unlocked with: ${res.passwordSource}`)}`);
   }
 
   // Self-check against the real chain, but never let a network problem
@@ -232,34 +268,47 @@ async function runCheck(argv) {
 
   if (existsSync(VAULT_PATH)) {
     try {
-      const v = await Vault.open(VAULT_PATH, {
-        password: process.env.HOLDER_KIT_PASSWORD || undefined,
-      });
-      record('wallets', v.wallets.length > 0, `${v.wallets.length} in vault`);
-      v.lock();
+      const { password, source } = findPassword(VAULT_PATH);
+      if (!password) {
+        record('wallets', false, 'vault locked — no HOLDER_KIT_PASSWORD, HOLDER_KIT_PASSWORD_FILE or vault/PASSWORD.txt');
+      } else {
+        const v = await Vault.open(VAULT_PATH, { password });
+        record('wallets', v.wallets.length > 0, `${v.wallets.length} in vault (unlocked via ${source})`);
+        v.lock();
+      }
     } catch (e) {
-      record('wallets', false, /password/i.test(e.message) ? 'vault locked (no HOLDER_KIT_PASSWORD set)' : e.message.slice(0, 50));
+      record('wallets', false, /password/i.test(e.message) ? 'wrong vault password' : e.message.slice(0, 80));
     }
   }
 
   try {
     const { spec, pool } = await context(argv);
     const bn = await pool.blockNumber();
-    record('rpc', true, `${spec.name} block ${parseInt(bn, 16)} via ${pool.active}/${pool.endpoints.length} endpoints`);
+    record('rpc', true, `${spec.name} block ${bn} via ${pool.active}/${pool.endpoints.length} endpoints`);
   } catch (e) {
     record('rpc', false, e.message.slice(0, 60));
   }
 
+  const ready = ok;
+  process.exitCode = ready ? 0 : 1;
+  if (JSON_MODE) {
+    emitJson({
+      ok: ready,
+      chain: chainKey,
+      agentMode: isAgentMode(),
+      agentBroadcast: isAgentMode() ? agentBroadcastLevel() : null,
+      checks: results.map((r) => ({ name: r.name, ok: r.good, detail: r.detail })),
+    });
+    return;
+  }
   for (const r of results) {
     console.log(`  ${r.good ? C.g('ok') : C.r('FAIL')}  ${C.b(r.name.padEnd(9))} ${C.dim(r.detail)}`);
   }
-  const ready = ok;
   console.log(
     ready
       ? `\n${C.g('READY')} — run ${C.c('find')} to see what is free, or ${C.c('auto')} to mint it.\n`
       : `\n${C.y('NOT READY')} — fix the items above, or run ${C.c('node bin/holder-kit.mjs setup')}\n`
   );
-  process.exitCode = ready ? 0 : 1;
 }
 
 /**
@@ -347,6 +396,11 @@ async function runBench(argv) {
 
 /** Persist a custom RPC into the holder's endpoints file. */
 function addEndpoint(url, name, chainKey) {
+  if (typeof url !== 'string' || !url) {
+    console.error(`${C.r('usage')}: rpc add <url> [--name label] [--chain key]\n  or:  HOLDER_KIT_RPC_URL=<url> rpc add   (keeps the key out of shell history)\n`);
+    process.exitCode = 1;
+    return;
+  }
   const file = join(ROOT, 'config', 'endpoints.json');
   let cfg = {};
   if (existsSync(file)) {
@@ -381,7 +435,7 @@ function addEndpoint(url, name, chainKey) {
   cfg.assignments[chainKey] = list;
 
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(cfg, null, 2));
+  writeFileSync(file, JSON.stringify(cfg, null, 2) + '\n', { mode: 0o600 });
   console.log(`\n  ${C.g('added')} ${C.c(providerName)} -> ${redactUrl(providerUrl)}`);
   console.log(`  ${C.dim(`assigned to ${chainKey}, ranked first`)}`);
   console.log(`\n  ${C.dim('saved to config/endpoints.json (gitignored — your key stays local)')}\n`);
@@ -391,7 +445,7 @@ async function main() {
   const argv = process.argv.slice(2);
   // `agent-auth` (and a bare `agents`) just prints what an agent may do.
   if (argv[0] === 'agent-auth' || argv[0] === 'agents' || argv[0] === 'perms') {
-    console.log(AGENT_AUTH);
+    console.log(AGENT_AUTH());
     return;
   }
   // `setup` with no other flags is THE entry point: bare `holder-kit` and
@@ -418,7 +472,8 @@ async function main() {
       // `rpc add <url>` is the friendly spelling of `bench --add`.
       const sub = argv[1];
       if (sub === 'add') {
-        addEndpoint(flag(argv, 'url', argv[2]), flag(argv, 'name', 'custom'), flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet'));
+        const given = flag(argv, 'url', argv[2] && !argv[2].startsWith('--') ? argv[2] : undefined);
+        addEndpoint(given || process.env.HOLDER_KIT_RPC_URL, flag(argv, 'name', 'custom'), flag(argv, 'chain', process.env.HOLDER_KIT_CHAIN || 'robinhoodMainnet'));
       } else if (sub === 'list' || sub === undefined) {
         await runBench(argv.filter((a) => a !== 'rpc' && a !== 'list'));
       } else {
@@ -450,6 +505,10 @@ async function main() {
     }
 
     case 'chains': {
+      if (JSON_MODE) {
+        emitJson({ ok: true, chains: listChains().map((c) => ({ key: c.key, id: c.id, name: c.name, testnet: !!c.testnet, endpoints: c.endpoints.length })) });
+        break;
+      }
       for (const c of listChains()) {
         console.log(`${C.b(c.key.padEnd(22))} id=${String(c.id).padEnd(6)} ${c.name}${c.testnet ? C.y('  [TESTNET]') : ''}  ${c.endpoints.length} rpc`);
       }
@@ -480,10 +539,16 @@ async function main() {
 
     case 'wallet': {
       const sub = argv[1];
+      assertAgentMayRun('wallet', sub);
       if (sub === 'list') {
         const v = await openVault();
-        const { pool } = await context(argv);
+        const { spec, pool } = await context(argv);
         const bals = await nativeBalances(pool, v.wallets.map((w) => w.address));
+        if (JSON_MODE) {
+          emitJson({ ok: true, chain: spec.key, wallets: v.wallets.map((w, i) => ({ index: i, address: w.address, balanceWei: bals[i].wei, balance: formatUnits(bals[i].wei), note: w.note || '' })) });
+          v.lock();
+          break;
+        }
         console.log(`\n${v.wallets.length} wallet(s) in vault ${C.dim(VAULT_PATH)}\n`);
         for (let i = 0; i < v.wallets.length; i++) {
           const w = v.wallets[i];
@@ -494,7 +559,11 @@ async function main() {
         break;
       }
       if (sub === 'new') {
-        const count = Number(flag(argv, 'count', flag(argv, 'n', 1)));
+        // `wallet new 20` (as documented) or --count 20. The positional form was
+        // documented everywhere but silently ignored, so it always made ONE wallet.
+        const positional = /^\d+$/.test(argv[2] || '') ? argv[2] : undefined;
+        const count = Number(flag(argv, 'count', flag(argv, 'n', positional ?? 1)));
+        if (!Number.isInteger(count) || count < 1 || count > 500) throw new Error('wallet count must be a whole number from 1 to 500');
         const v = await openVault({ create: true });
         console.log(`\ngenerating ${count} wallet(s)...`);
         const added = [];
@@ -545,8 +614,10 @@ async function main() {
       if (sub === 'from-seed') {
         // The one time a holder touches a secret. After this they sign nothing:
         // every later command reads the key from the encrypted vault.
+        if (argv.includes('--phrase')) {
+          throw new Error('--phrase is not accepted: a recovery phrase on the command line lands in shell history. Run `wallet from-seed` and paste it at the hidden prompt.');
+        }
         const phrase =
-          flag(argv, 'phrase') ||
           process.env.HOLDER_KIT_SEED ||
           (await hiddenPrompt('Paste your 12/24-word recovery phrase (input hidden): '));
         const cleaned = String(phrase).trim().replace(/\s+/g, ' ').toLowerCase();
@@ -555,8 +626,6 @@ async function main() {
           throw new Error(`that is ${words.length} words; a recovery phrase is 12, 15, 18, 21 or 24 words`);
         }
         const accounts = Number(flag(argv, 'accounts', 1));
-        const path = flag(argv, 'path');
-        const pass = flag(argv, 'derivation', "m/44'/60'/0'/0");
 
         const v = await openVault({ create: true });
         const added = [];
@@ -586,6 +655,55 @@ async function main() {
         v.lock();
         break;
       }
+      if (sub === 'change-password') {
+        // New password from HOLDER_KIT_NEW_PASSWORD or a hidden prompt (twice).
+        const v = await openVault();
+        let next = process.env.HOLDER_KIT_NEW_PASSWORD;
+        if (!next) {
+          next = await hiddenPrompt('New vault password (input hidden): ');
+          const again = await hiddenPrompt('Repeat new password: ');
+          if (next !== again) throw new Error('passwords did not match — nothing changed');
+        }
+        if (!next || next.length < 12) throw new Error('new password must be at least 12 characters — nothing changed');
+
+        // Order matters so a crash can never leave the vault and its password
+        // file disagreeing: stage the new password file, re-encrypt the vault,
+        // then swap the password file into place.
+        const pwFile = passwordFileCandidates(VAULT_PATH).find((f) => existsSync(f));
+        const staged = pwFile ? `${pwFile}.new` : null;
+        if (staged) writeFileSync(staged, `${next}\n`, { mode: 0o600 });
+        v.password = next;
+        v.save();
+        if (staged) {
+          const { renameSync } = await import('node:fs');
+          renameSync(staged, pwFile);
+        }
+        console.log(`${C.g('vault password changed')} ${VAULT_PATH}`);
+        if (pwFile) console.log(C.dim(`  ${pwFile} updated to match.`));
+        console.log(C.y('  Old backups still open with the OLD password. Make a fresh one: wallet backup <path>'));
+        v.lock();
+        break;
+      }
+      if (sub === 'restore') {
+        // Merge wallets from an encrypted backup into the vault (never deletes).
+        const src = flag(argv, 'from', argv[2]);
+        if (!src) throw new Error('usage: holder-kit wallet restore <backup-file>');
+        const v = await openVault({ create: true });
+        const backupPw = process.env.HOLDER_KIT_BACKUP_PASSWORD || v.password;
+        const b = await Vault.open(resolve(src), { password: backupPw });
+        let added = 0;
+        for (const w of b.wallets) {
+          if (!v.find(w.address)) {
+            v.addWallet({ address: w.address, privateKey: w.privateKey, note: w.note || 'restored', tags: w.tags || [] });
+            added++;
+          }
+        }
+        const res = v.save();
+        console.log(`${C.g(`restored ${added} wallet(s)`)} (${b.wallets.length - added} already present) -> ${res.path}`);
+        b.lock();
+        v.lock();
+        break;
+      }
       if (sub === 'remove') {
         const addr = flag(argv, 'address', argv[2]);
         const v = await openVault();
@@ -603,6 +721,11 @@ async function main() {
       const { spec, pool } = await context(argv);
       // inventoryAll reads chainSpec.collections — pass the whole spec, not just pool.
       const rows = await inventoryAll(pool, spec, v.wallets);
+      if (JSON_MODE) {
+        emitJson({ ok: true, chain: spec.key, rows });
+        v.lock();
+        break;
+      }
       console.log(`\n${C.b('inventory')} ${spec.name} (id ${spec.id}) — ${v.wallets.length} wallet(s)\n`);
       let totalNft = 0;
       for (const r of rows) {
@@ -635,9 +758,13 @@ async function main() {
       const { spec, pool } = await context(argv);
       const addresses = addressList(argv);
       const results = await scanForMints(pool, spec, { addresses });
-      printMintScan(results, `${spec.name} (id ${spec.id})`);
       const free = results.filter((r) => r.verdict === 'free-live');
       process.exitCode = free.length ? 0 : 1;
+      if (JSON_MODE) {
+        emitJson({ ok: true, chain: spec.key, freeLive: free.length, results });
+        break;
+      }
+      printMintScan(results, `${spec.name} (id ${spec.id})`);
       break;
     }
 
@@ -679,6 +806,10 @@ async function main() {
       const quantity = Number(flag(argv, 'quantity', 1));
       const addresses = addressList(argv);
 
+      // `auto` used to broadcast with no flag at all, contradicting "dry run by
+      // default everywhere". It now follows the same rule as every command.
+      const dryRun = !isAuto(argv) && isDryRun(argv);
+
       const results = await scanForMints(pool, spec, { addresses });
       printMintScan(results, `${spec.name} (id ${spec.id})`);
 
@@ -692,11 +823,23 @@ async function main() {
 
       console.log(C.b(`\n  minting from ${free.length} free collection(s), ${quantity} per wallet, ${signers.length} wallet(s)\n`));
       let totalSent = 0;
+      let totalFailed = 0;
       for (const col of free) {
-        const r = await mintAll({ pool, collection: col.address, signers, quantity, dryRun: false, argv: [...argv, '--execute', '--auto'] });
-        totalSent += r.sent || 0;
+        try {
+          const r = await mintAll({ pool, collection: col.address, signers, quantity, dryRun, argv: dryRun ? argv : [...argv, '--execute', '--auto'] });
+          totalSent += r.sent || 0;
+          totalFailed += r.failed || 0;
+        } catch (e) {
+          // One bad collection must not stop the others — but an agent-policy
+          // refusal applies to all of them, so let that one propagate.
+          if (e instanceof Aborted) throw e;
+          totalFailed++;
+          console.log(C.r(`  ${col.address}: ${e.message.slice(0, 120)}`));
+        }
       }
-      console.log(totalSent ? C.g(`\nauto-mint complete: ${totalSent} mint(s) sent`) : C.y('\nnothing was sent'));
+      if (dryRun) console.log(C.dim('\ndry run only. Re-run with --auto (or --execute) to mint.'));
+      else console.log(totalSent ? C.g(`\nauto-mint complete: ${totalSent} mint(s) confirmed, ${totalFailed} failed`) : C.y(`\nnothing was sent (${totalFailed} failed)`));
+      if (!dryRun && totalFailed) process.exitCode = 1;
       v.lock();
       break;
     }
@@ -738,9 +881,9 @@ async function main() {
         const to = flag(argv, 'to');
         const each = flag(argv, 'each', '0.01');
         const fromIndex = Number(flag(argv, 'from', 0));
-        if (!to) throw new Error('usage: holder-kit fund --each 0.01 --to <file|list> [--execute]');
-        const recipients = dedupeAddresses(readAddressList(to), 'recipient');
-        const res = await fund({ signers, recipients, amountEthEach: each, fromIndex, dryRun, argv });
+        // No --to means "every other wallet in my vault" (what the UI promised).
+        const recipients = typeof to === 'string' ? readAddressList(to) : v.wallets.map((w) => w.address);
+        const res = await fund({ pool, signers, recipients, amountEthEach: each, fromIndex, dryRun, argv });
         console.log(res.sent ? C.g(`\nsent ${res.sent}`) : C.dim(`\nplanned ${res.planned}, sent 0`));
       }
 
@@ -807,6 +950,11 @@ main()
     void assertNoSecretLeak;
   })
   .catch((err) => {
+    if (JSON_MODE) {
+      emitJson({ ok: false, aborted: err instanceof Aborted, error: err.message });
+      process.exitCode = err instanceof Aborted ? 2 : 1;
+      return;
+    }
     if (err instanceof Aborted) {
       console.error(`\n${C.y('aborted')}: ${err.message}\n`);
       process.exitCode = 2;

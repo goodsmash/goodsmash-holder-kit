@@ -5,67 +5,56 @@
 // keeping the security property that matters: a real password, stored nowhere
 // in plaintext except one file the holder is explicitly told about.
 
-import { randomBytes, scryptSync } from 'node:crypto';
-import { writeFileSync, existsSync, readFileSync, chmodSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { findPassword, generatePasswordFile } from './password.mjs';
+import { hiddenPrompt } from './vault.mjs';
 
 /**
- * Decide a vault password without ever blocking on a prompt.
+ * Decide the vault password for setup.
  *
- * Order of preference:
- *   1. HOLDER_KIT_PASSWORD  (set by the caller/agent)
- *   2. HOLDER_KIT_PASSWORD_FILE (a file the holder already trusts)
- *   3. a freshly generated 32-char random password, written to a 0600 file
- *
- * A generated password is cryptographically random, not a guessable default —
- * this is strictly stronger than "kit" or "password", and it means an agent or
- * CI run never deadlocks waiting for a human who isn't there.
+ *  - vault EXISTS: unlock it with whatever password source is available
+ *    (env, password file, prompt). Never generate a new one — a new random
+ *    password cannot open an existing vault, and the old setup overwrote the
+ *    password file with exactly that, locking holders out for good.
+ *  - vault MISSING: use env / an existing password file, otherwise generate a
+ *    strong random password into PASSWORD.txt (written with 'wx', so it can
+ *    never replace a file that is already there).
  */
-export function resolvePassword(vaultDir, { interactive } = {}) {
-  if (process.env.HOLDER_KIT_PASSWORD) {
-    return { password: process.env.HOLDER_KIT_PASSWORD, source: 'HOLDER_KIT_PASSWORD', file: null };
-  }
+export async function resolveSetupPassword(vaultPath, { interactive } = {}) {
+  const found = findPassword(vaultPath);
+  if (found.password) return found;
 
-  const fileEnv = process.env.HOLDER_KIT_PASSWORD_FILE;
-  if (fileEnv && existsSync(fileEnv)) {
-    const pw = readFileSync(fileEnv, 'utf8').trim();
-    if (pw.length >= 8) return { password: pw, source: `password file (${fileEnv})`, file: fileEnv };
-  }
-
-  // No password available and nobody to ask: mint a strong one and save it.
-  if (!interactive) {
-    const password = randomBytes(24).toString('base64url');
-    const pwFile = join(vaultDir, 'vault-password.txt');
-    writeFileSync(pwFile, `${password}\n`, { mode: 0o600 });
-    try {
-      chmodSync(pwFile, 0o600);
-    } catch {
-      /* Windows ACLs govern; mode is advisory. */
+  if (existsSync(vaultPath)) {
+    if (interactive) {
+      const pw = await hiddenPrompt('Vault password (input hidden): ');
+      return { password: pw, source: 'prompt', file: null };
     }
-    return { password, source: 'generated', file: pwFile };
+    throw new Error(
+      `a vault already exists at ${vaultPath} but no password was found.\n` +
+        `  Set HOLDER_KIT_PASSWORD or HOLDER_KIT_PASSWORD_FILE, or restore ${join(dirname(vaultPath), 'PASSWORD.txt')}.\n` +
+        `  Setup will NOT generate a new password: it could never open this vault.`
+    );
   }
-
-  return { password: null, source: 'prompt', file: null }; // caller prompts
+  return generatePasswordFile(vaultPath);
 }
 
 /**
- * One-command setup. Idempotent: running it twice does not destroy wallets.
+ * One-command setup. Idempotent: running it twice does not destroy wallets,
+ * and never touches an existing password file.
  */
 export async function quickSetup({
   vaultPath,
-  vaultDir,
-  password,
   interactive,
   walletCount = 0,
   label = 'holder-kit vault',
+  backup = true,
 }) {
   const steps = [];
-
-  const resolved = resolvePassword(vaultDir, { interactive });
-  const finalPassword = password || resolved.password;
-
-  if (!finalPassword) {
-    throw new Error('no password available and no terminal to ask for one');
+  const resolved = await resolveSetupPassword(vaultPath, { interactive });
+  const finalPassword = resolved.password;
+  if (!finalPassword || finalPassword.length < 8) {
+    throw new Error('vault password must be at least 8 characters');
   }
 
   const { Vault } = await import('./vault.mjs');
@@ -80,11 +69,6 @@ export async function quickSetup({
     steps.push({ ok: true, msg: 'vault created (scrypt + AES-256-GCM)' });
   }
 
-  // A second, independent password would be a support call later; reject it up front.
-  if (finalPassword.length < 8) {
-    throw new Error('vault password must be at least 8 characters');
-  }
-
   let generated = 0;
   if (walletCount > 0 && vault.wallets.length === 0) {
     const { generatePrivateKey, privateKeyToAccount } = await import('viem/accounts');
@@ -94,12 +78,23 @@ export async function quickSetup({
       vault.addWallet({ address: acct.address, privateKey: pk, note: 'generated at setup' });
       generated++;
     }
-    vault.save();
     steps.push({ ok: true, msg: `generated ${generated} wallet(s)` });
   }
 
   const saved = vault.save();
   steps.push({ ok: true, msg: `saved ${saved.wallets} wallet(s) to ${saved.path}` });
+
+  // First backup, proven by decrypting it again before we call it a backup.
+  let backupPath = null;
+  if (backup) {
+    backupPath = join(dirname(vaultPath), 'holder.vault.backup.bin');
+    const res = vault.exportTo(backupPath);
+    await Vault.open(backupPath, { password: finalPassword }).then((b) => {
+      if (b.wallets.length !== saved.wallets) throw new Error('backup verification failed — wallet count mismatch');
+      b.lock();
+    });
+    steps.push({ ok: true, msg: `backup written and re-opened OK (${res.bytes} bytes) -> ${backupPath}` });
+  }
 
   vault.lock();
 
@@ -108,8 +103,9 @@ export async function quickSetup({
     generated,
     wallets: saved.wallets,
     vaultPath: saved.path,
+    backupPath,
     passwordSource: resolved.source,
-    passwordFile: resolved.file,
+    passwordFile: resolved.source === 'generated' ? resolved.file : null,
   };
 }
 

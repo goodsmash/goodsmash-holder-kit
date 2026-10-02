@@ -61,27 +61,26 @@ export function confirm(question) {
   });
 }
 
-export async function gateBroadcast({ dryRun, summary, argv, auto = false }) {
-  if (!dryRun) return { proceeding: true, auto: true };
-
+/**
+ * Print the dry-run plan. Dry runs NEVER prompt and never throw: the old
+ * version asked "Type y to actually send" and then sent nothing whatever the
+ * answer, and in a non-interactive shell (an agent, the UI) it aborted with
+ * exit code 2 — so a perfectly good dry run looked like a failure.
+ */
+export async function gateBroadcast({ dryRun, summary }) {
+  if (!dryRun) return { proceeding: true };
   console.log('\n================ DRY RUN — nothing was sent ================');
   console.log(summary);
   console.log('==============================================================');
-  console.log('\nNothing has been broadcast. Re-run with --execute to send for real.\n');
-
-  if (auto) {
-    console.log('[auto] auto mode: proceeding without a prompt.\n');
-    return { proceeding: true, auto: true };
-  }
-  if (argv.includes('--execute')) return { proceeding: true, auto: false };
-
-  const ok = await confirm('Type y to actually send these transactions?');
-  if (!ok) throw new Aborted('aborted at confirmation — no transaction was sent');
-  return { proceeding: true, auto: false };
+  console.log('\nNothing has been broadcast. Re-run with --execute (or --auto) to send for real.\n');
+  return { proceeding: false, dryRun: true };
 }
 
 /** Ceiling check. Doubling past a limit needs an explicit override token. */
 export function assertWithinLimits({ perTxEth, perRunEth, override }) {
+  if (override && isAgentMode()) {
+    throw new Aborted('agent mode: --override-ceilings is never accepted from an agent. The holder must run this command themselves.');
+  }
   const problems = [];
   if (perTxEth > LIMITS.maxPerTxEth) problems.push(`single tx ${perTxEth} ETH > ${LIMITS.maxPerTxEth} ETH`);
   if (perRunEth > LIMITS.maxPerRunEth) problems.push(`run total ${perRunEth} ETH > ${LIMITS.maxPerRunEth} ETH`);
@@ -169,5 +168,55 @@ export class RunLedger {
 
   get size() {
     return this.done.size;
+  }
+}
+
+/**
+ * AGENT MODE (Hermes or any other local agent).
+ *
+ * Set HOLDER_KIT_AGENT=1 in the agent's environment (the Hermes installer's
+ * wrapper does this). Broadcasting is then governed by HOLDER_KIT_AGENT_BROADCAST,
+ * which only the HOLDER sets:
+ *
+ *   none        (default) — dry runs and reads only; nothing is ever signed
+ *   free-mints  — `auto` / `watch` / `mint` may broadcast, but ONLY zero-value mints
+ *   all         — every command may broadcast (ceilings still apply)
+ *
+ * In every agent level: --override-ceilings is refused, and destructive vault
+ * actions (remove, change-password) are refused. This is a guardrail against an
+ * agent improvising, not a sandbox: anything with shell access as the holder
+ * can bypass it. Keep the agent's tool permissions tight as well.
+ */
+export function isAgentMode() {
+  return process.env.HOLDER_KIT_AGENT === '1';
+}
+
+export function agentBroadcastLevel() {
+  const v = String(process.env.HOLDER_KIT_AGENT_BROADCAST || 'none').toLowerCase();
+  return ['none', 'free-mints', 'all'].includes(v) ? v : 'none';
+}
+
+/**
+ * Throw unless the current agent policy allows broadcasting this kind of action.
+ * kind: 'free-mint' | 'paid-mint' | 'transfer' | 'fund'
+ */
+export function assertAgentMayBroadcast(kind) {
+  if (!isAgentMode()) return;
+  const level = agentBroadcastLevel();
+  if (level === 'all') return;
+  if (level === 'free-mints' && kind === 'free-mint') return;
+  throw new Aborted(
+    `agent mode: broadcasting a ${kind} is not allowed (HOLDER_KIT_AGENT_BROADCAST=${level}). ` +
+      `Show the holder the dry run; they can run it themselves with --execute, ` +
+      `or raise the policy with: npm run hermes:install -- --broadcast <level>.`
+  );
+}
+
+export function assertAgentMayRun(cmd, sub) {
+  if (!isAgentMode()) return;
+  const blocked = new Set(['wallet remove', 'wallet change-password', 'wallet restore']);
+  const name = sub ? `${cmd} ${sub}` : cmd;
+  if (blocked.has(name)) {
+    throw new Aborted(`agent mode: \`${name}\` must be run by the holder, not an agent.`);
   }
 }

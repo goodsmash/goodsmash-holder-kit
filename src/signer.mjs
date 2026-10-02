@@ -4,7 +4,7 @@
 // transaction goes to the RPC and nowhere else. There is no key-server call, no
 // telemetry, and no remote signer anywhere in this file.
 import { privateKeyToAccount } from 'viem/accounts';
-import { RpcPool } from './rpc.mjs';
+import { keccak256 } from 'viem/utils';
 
 export class Signer {
   constructor(privateKey, pool, chainSpec) {
@@ -64,8 +64,27 @@ export class Signer {
       }
     }
 
-    const hash = await this.account.signTransaction(request);
-    const sent = await this.pool.sendRawTransaction(hash);
+    const signed = await this.account.signTransaction(request);
+    // The tx hash is a pure function of the signed bytes, so we know it before
+    // broadcasting. That matters for failover: if endpoint A accepted the tx but
+    // timed out answering, the pool retries on endpoint B, which correctly says
+    // "already known" / "nonce too low". That is NOT a failure — the very same
+    // transaction is in flight — so we wait on the hash we computed.
+    const expected = keccak256(signed);
+    let sent;
+    try {
+      sent = await this.pool.sendRawTransaction(signed);
+    } catch (e) {
+      if (/already known|known transaction|nonce too low|already imported/i.test(e.message)) {
+        const rc = await this.pool
+          .waitForReceipt(expected, { confirmations: 1, timeoutMs: 60_000 })
+          .catch(() => null);
+        if (!rc) throw e; // a DIFFERENT tx used this nonce; surface the original error
+        sent = expected;
+      } else {
+        throw e;
+      }
+    }
     if (!quiet) process.stdout.write(`   sent ${sent} from ${this.address}\n`);
 
     const rc = await this.pool.waitForReceipt(sent, {

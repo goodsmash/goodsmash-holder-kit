@@ -88,8 +88,12 @@
         </select>
       </div>
     </div>
+    <label style="display:flex;gap:8px;align-items:center;margin-top:10px">
+      <input id="live" type="checkbox" style="width:auto">
+      <span><b>Send for real.</b> Unticked, every send / mint / fund button is a dry run that only shows the plan.</span>
+    </label>
     <p class="note">
-      Left as <code>setup</code>, <code>chains</code> and <code>bench</code> alone —
+      Leave the password blank if <code>setup</code> saved <code>vault/PASSWORD.txt</code>. Left as <code>setup</code>, <code>chains</code> and <code>bench</code> alone —
       those never touch a key. For testnet commands the CLI also wants the
       <code>--i-know-this-is-testnet</code> flag, which the buttons below add for you.
     </p>
@@ -153,8 +157,8 @@
         <button data-cmd="find">Find what's free</button>
         <button id="auto" class="go">Mint it automatically</button>
       </div>
-      <p class="note warn"><b>Mint it automatically</b> spends real gas and needs gas in your
-      wallets. Always run <b>Find</b> first and read the plan before using it.</p>
+      <p class="note warn"><b>Mint it automatically</b> is a dry run unless <b>Send for real</b> is
+      ticked; then it spends real gas. Only zero-price mints are ever sent.</p>
     </section>
 
     <section>
@@ -214,6 +218,13 @@ const collection = () => $('coll').value.trim();
 const isTestnet = () => $('chain').value === 'robinhoodTestnet';
 const testnetFlag = () => (isTestnet() ? ['--i-know-this-is-testnet'] : []);
 
+/** Append --execute only when the holder ticked "Send for real" AND confirms. */
+function liveFlag(what) {
+  if (!$('live').checked) return [];
+  const ok = window.confirm(`Send for real: ${what} on ${$('chain').value}?\n\nThis signs and broadcasts transactions from your vault.`);
+  return ok ? ['--execute'] : null;
+}
+
 $('addRpc').addEventListener('click', () => {
   const url = $('rpc').value.trim();
   if (!url) return run(['bench']);
@@ -231,7 +242,9 @@ $('backup').addEventListener('click', () => {
 });
 
 $('auto').addEventListener('click', () => {
-  const argv = ['auto', '--chain', $('chain').value, ...testnetFlag()];
+  const live = liveFlag('mint every FREE live collection from all your wallets');
+  if (live === null) return;
+  const argv = ['auto', '--chain', $('chain').value, ...testnetFlag(), ...live];
   if (collection()) argv.push('--collection', collection());
   run(argv);
 });
@@ -245,7 +258,9 @@ $('spread').addEventListener('click', () => {
     return;
   }
   argv.push('--to', to.join(','));
-  run(argv);
+  const live = liveFlag(`send NFTs to ${to.length} address(es)`);
+  if (live === null) return;
+  run([...argv, ...live]);
 });
 
 $('fund').addEventListener('click', () => {
@@ -253,7 +268,9 @@ $('fund').addEventListener('click', () => {
                 '--chain', $('chain').value, ...testnetFlag()];
   const to = lines($('to').value);
   if (to.length) argv.push('--to', to.join(','));
-  run(argv);
+  const live = liveFlag(`top up wallets to ${$('each').value.trim() || '0.005'} each`);
+  if (live === null) return;
+  run([...argv, ...live]);
 });
 
 let running = false;
@@ -268,7 +285,12 @@ async function run(argv) {
   try {
     const r = await fetch('/run', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: {
+        'content-type': 'application/json',
+        // Per-launch token the server embeds in this page. Another site cannot
+        // read it, so it cannot drive this UI even if it guesses the port.
+        'x-holder-kit-token': document.querySelector('meta[name="hk-token"]')?.content || '',
+      },
       body: JSON.stringify({ argv, password: $('pw').value }),
     });
     const j = await r.json();

@@ -13,11 +13,41 @@ import {
   createDecipheriv,
   timingSafeEqual,
 } from 'node:crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync, renameSync, unlinkSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 
 const SCRYPT = { N: 2 ** 18, r: 8, p: 1, keylen: 32 };
+
+/**
+ * Write-then-rename so a crash, full disk or power cut mid-write can never
+ * leave a half-written vault in place of the good one. The temp file is
+ * verified by decrypting it from disk before it replaces anything.
+ */
+function atomicWriteVerified(path, buf, password, expectWallets) {
+  mkdirSync(join(path, '..'), { recursive: true });
+  const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
+  writeFileSync(tmp, buf, { mode: 0o600 });
+  try {
+    const back = decryptVault(readFileSync(tmp), password);
+    if (back.wallets.length !== expectWallets) {
+      throw new Error('vault integrity check failed after write — original left untouched');
+    }
+    try {
+      chmodSync(tmp, 0o600);
+    } catch {
+      /* Windows ACLs govern here; mode is advisory. */
+    }
+    renameSync(tmp, path);
+  } catch (e) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* already gone */
+    }
+    throw e;
+  }
+}
 const MAGIC = 'HKV1';
 
 /** Read a password with terminal echo disabled. Works on Windows terminals. */
@@ -146,13 +176,8 @@ export class Vault {
     if (check.wallets.length !== 0) throw new Error('vault self-check failed (write not trusted)');
     assertWrongPasswordRejected(buf);
 
-    mkdirSync(join(path, '..'), { recursive: true });
-    writeFileSync(path, buf, { mode: 0o600 });
-    try {
-      chmodSync(path, 0o600);
-    } catch {
-      /* Windows ACLs govern here; mode is advisory. */
-    }
+    if (existsSync(path)) throw new Error(`refusing to overwrite an existing vault at ${path}`);
+    atomicWriteVerified(path, buf, pass, 0);
     return new Vault(path, data, pass);
   }
 
@@ -199,7 +224,7 @@ export class Vault {
     if (check.wallets.length !== this.data.wallets.length) {
       throw new Error('vault integrity check failed after write — do not trust this file');
     }
-    writeFileSync(this.path, buf, { mode: 0o600 });
+    atomicWriteVerified(this.path, buf, this.password, this.data.wallets.length);
     return { path: this.path, bytes: buf.length, wallets: this.data.wallets.length };
   }
 
@@ -210,7 +235,7 @@ export class Vault {
     if (check.wallets.length !== this.data.wallets.length) {
       throw new Error('export integrity check failed');
     }
-    writeFileSync(destPath, buf, { mode: 0o600 });
+    atomicWriteVerified(destPath, buf, this.password, this.data.wallets.length);
     return { path: destPath, bytes: buf.length };
   }
 
